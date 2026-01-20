@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.uv/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+
+# Uploads and temp
+uploads/
+tmp/
+temp/
+*.tmp
+
+# Docker
+.docker/
+
+# OS
+Thumbs.db
+nul
+
+# Cache
+.ruff_cache/
+.claude/
+
+# Temp files
+tmpclaude-*
+*temp_openapi.json
+
+# Data directory (contains databases and uploads)
+data/
+
+# BMAD output (if any)
+_bmad/
+_bmad-output/

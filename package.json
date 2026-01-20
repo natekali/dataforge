@@ -1,0 +1,30 @@
+{
+  "name": "dataforge-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Ultimate Fine-Tuning Dataset Builder",
+  "packageManager": "pnpm@9.15.1",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,green \"pnpm dev:web\" \"pnpm dev:api\"",
+    "dev:web": "pnpm --filter @dataforge/web dev",
+    "dev:api": "cd apps/api && uv run uvicorn dataforge_api.main:app --reload --port 8000",
+    "build": "pnpm run --parallel build",
+    "build:web": "pnpm --filter @dataforge/web build",
+    "lint": "pnpm run --parallel lint",
+    "typecheck": "pnpm --filter @dataforge/web typecheck",
+    "test": "pnpm run --parallel test",
+    "test:api": "cd apps/api && uv run pytest",
+    "clean": "pnpm run --parallel clean",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,88 @@
+[project]
+name = "dataforge-api"
+version = "0.1.0"
+description = "DataForge Studio API - Dataset processing backend"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "DataForge Team" }]
+
+dependencies = [
+    "fastapi>=0.115.6",
+    "uvicorn[standard]>=0.34.0",
+    "python-multipart>=0.0.19",
+    "pydantic>=2.10.4",
+    "pydantic-settings>=2.7.0",
+    "polars>=1.18.0",
+    "duckdb>=1.1.3",
+    "litellm>=1.55.8",
+    "httpx>=0.28.1",
+    "aiosqlite>=0.20.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "jinja2>=3.1.4",
+    "orjson>=3.10.12",
+    "aiofiles>=24.1.0",
+    "chardet>=5.2.0",
+    "tiktoken>=0.8.0",
+    "sentence-transformers>=3.3.1",
+    "numpy>=2.2.1",
+    "dataforge-core",
+    "structlog>=24.0.0",
+    "slowapi>=0.1.9",
+    "sse-starlette>=3.1.2",
+    "huggingface-hub>=0.27.0",
+    "datasets>=3.2.0",
+]
+
+[tool.uv.sources]
+dataforge-core = { path = "../../packages/core" }
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.4",
+    "mypy>=1.14.1",
+    "httpx>=0.28.1",
+]
+pdf = [
+    "marker-pdf>=1.0.0",
+    "pypdf>=5.1.0",
+]
+docs = [
+    "python-docx>=1.1.2",
+    "openpyxl>=3.1.5",
+    "python-pptx>=0.6.21",
+]
+
+[project.scripts]
+dataforge-api = "dataforge_api.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataforge_api"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dataforge_api", "dataforge_core"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

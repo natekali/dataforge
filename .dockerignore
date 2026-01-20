@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Node
+node_modules
+.pnpm-store
+
+# Next.js
+.next
+out
+
+# Python
+__pycache__
+*.pyc
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment files (use Docker env vars instead)
+.env
+.env.local
+.env.*.local
+apps/web/.env.local
+
+# Build artifacts
+dist
+build
+*.egg-info
+
+# Data (mount as volume instead)
+data/
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+tests/
+*_test.py
+test_*.py
