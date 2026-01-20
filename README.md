@@ -1,10 +1,12 @@
 # DataForge Studio
 
+<img width="1408" height="684" alt="aaa" src="https://github.com/user-attachments/assets/9c1d7170-66f2-4b58-81ce-9454d3ecc139" />
+
 <div align="center">
 
 **The Ultimate Fine-Tuning Dataset Builder**
 
-*Create, manage, and export high-quality datasets for AI model training — no coding required*
+*Create, manage, and export high-quality datasets for AI model training - no coding required*
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.12+-green.svg)
@@ -95,7 +97,7 @@ Generate ready-to-train packages for:
 
 Each export includes a README with training instructions!
 
-### 2025 Model Support
+### 2025-2026 Model Support
 
 Pre-configured for the latest models:
 - **Meta**: Llama 4, Llama 3.3, Llama 3.2, Llama 3.1
@@ -139,7 +141,8 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:3000 in your browser.
+Open http://localhost:3000 in your browser.  
+<img width="1371" height="831" alt="image" src="https://github.com/user-attachments/assets/2f6424e1-22d3-4a66-83fc-a81890aade71" />
 
 ---
 
