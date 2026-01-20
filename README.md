@@ -142,6 +142,7 @@ pnpm dev
 ```
 
 Open http://localhost:3000 in your browser.  
+
 <img width="1371" height="831" alt="image" src="https://github.com/user-attachments/assets/2f6424e1-22d3-4a66-83fc-a81890aade71" />
 
 ---
