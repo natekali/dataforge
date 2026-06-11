@@ -1,0 +1,74 @@
+# Optional: let Claude turn the monthly freshness report into a reviewed PR.
+# Inert until you add an ANTHROPIC_API_KEY secret to the repo
+# (Settings -> Secrets and variables -> Actions).
+name: Registry auto-update (Claude)
+
+on:
+  schedule:
+    # Two days after the freshness report
+    - cron: '0 8 3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for API key
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "No ANTHROPIC_API_KEY secret set. Skipping (the monthly report issue still tells you what to update by hand)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.key.outputs.present == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.key.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Update the registry with Claude
+        if: steps.key.outputs.present == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You maintain the model registry of DataForge Studio, a fine-tuning
+            dataset workbench. Task:
+            1. Run `node scripts/check-registry.mjs` and read the report.
+            2. Fix any broken hfIds in src/engine/registry.ts (verify renames
+               against the Hugging Face Hub API before changing anything).
+            3. For trending candidate models that are genuinely relevant
+               fine-tune targets (instruct/chat checkpoints from the major
+               open-weight families, not quants or merges), research their
+               model cards and add proper ModelInfo entries: exact hfId,
+               context length from config.json, template family, reasoning
+               mode, license, size class.
+            4. If framework versions drifted, update the version strings in
+               src/engine/exporters/readme.ts AND the SHIPPED map in
+               scripts/check-registry.mjs. Do not change export formats
+               without verifying upstream docs.
+            5. Run `pnpm test` and `pnpm typecheck`; everything must pass.
+            6. Open a pull request titled "chore(registry): monthly model
+               update" summarizing what changed and which sources you used.
+            Keep edits surgical. When unsure about a model's metadata, leave
+            it out and mention it in the PR body instead of guessing.

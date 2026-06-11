@@ -1,0 +1,37 @@
+name: Registry freshness report
+
+on:
+  schedule:
+    # First day of every month, 08:00 UTC
+    - cron: '0 8 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run freshness check
+        run: node scripts/check-registry.mjs > report.md
+
+      - name: Open or update the report issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Registry freshness report — $(date -u +'%B %Y')"
+          EXISTING=$(gh issue list --label registry-freshness --state open --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file report.md
+          else
+            gh label create registry-freshness --description "Monthly model registry check" --color D97A14 2>/dev/null || true
+            gh issue create --title "$TITLE" --label registry-freshness --body-file report.md
+          fi

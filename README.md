@@ -1,10 +1,10 @@
-<img width="2172" height="724" alt="dataforge" src="https://github.com/user-attachments/assets/7cdefeb7-2392-45a2-ab9d-7358c349c1cf" />  
-
-# 🛠️ DataForge Studio
+# DataForge Studio
 
 A workbench for building LLM fine-tuning datasets. Import data from anywhere, edit it in a proper grid, check its quality, generate synthetic examples, and export ready-to-train packages for the frameworks people actually use in 2026.
 
 Everything runs in your browser. There is no server, no account, no upload. Your training data never leaves your machine.
+
+**Live app:** https://natekali.github.io/dataforge/
 
 ![DataForge Studio workbench](docs/screenshot-workbench.png)
 
@@ -87,6 +87,25 @@ pnpm test        # run the test suite (557 tests)
 pnpm typecheck   # strict TypeScript check
 pnpm build       # production build to dist/
 ```
+
+## Deploy your own
+
+The repo ships with a GitHub Actions workflow that deploys to GitHub Pages on every push to `main`.
+
+1. Fork or push this repo to GitHub
+2. Repo Settings, then Pages, set Source to "GitHub Actions"
+3. Push to `main`
+
+That's it. The app appears at `https://<you>.github.io/dataforge/`. If your repo has a different name, set `DATAFORGE_BASE=/your-repo-name/` in the build step or edit `vite.config.ts`.
+
+## Staying current
+
+The AI landscape moves monthly. DataForge keeps up in four layers:
+
+1. **Provider model lists are live.** The model dropdown for OpenAI, Anthropic, Gemini, OpenRouter, Groq and Ollama is fetched from the provider at runtime, never hardcoded. New API models appear the day they ship.
+2. **A monthly freshness report.** A scheduled workflow checks every model in the registry against the Hugging Face Hub, lists trending models worth adding, and compares the exporter docs against the latest Axolotl, TRL, LLaMA-Factory, MS-SWIFT and Unsloth releases on PyPI. The result lands as a GitHub issue. Run it yourself anytime: `node scripts/check-registry.mjs`
+3. **Optional: Claude maintains the registry.** Add an `ANTHROPIC_API_KEY` secret to the repo and a second monthly workflow has Claude read the report, research the model cards, update the registry and open a pull request for review. No secret, no run.
+4. **Dependabot** keeps npm packages and workflow actions patched weekly.
 
 ## Privacy
 

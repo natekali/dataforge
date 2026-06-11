@@ -74,3 +74,7 @@ data/
 # BMAD output (if any)
 _bmad/
 _bmad-output/
+
+# Promo video (kept locally, not part of the app)
+video/
+docs/dataforge-promo.mp4
