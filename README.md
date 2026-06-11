@@ -1,4 +1,6 @@
-# DataForge Studio
+<img width="2172" height="724" alt="dataforge" src="https://github.com/user-attachments/assets/34c48ee5-b8b2-4369-b5f8-ecbc5a42a687" />  
+
+# 🛠️ Dataforge Studio
 
 A workbench for building LLM fine-tuning datasets. Import data from anywhere, edit it in a proper grid, check its quality, generate synthetic examples, and export ready-to-train packages for the frameworks people actually use in 2026.
 
@@ -87,16 +89,6 @@ pnpm test        # run the test suite (557 tests)
 pnpm typecheck   # strict TypeScript check
 pnpm build       # production build to dist/
 ```
-
-## Deploy your own
-
-The repo ships with a GitHub Actions workflow that deploys to GitHub Pages on every push to `main`.
-
-1. Fork or push this repo to GitHub
-2. Repo Settings, then Pages, set Source to "GitHub Actions"
-3. Push to `main`
-
-That's it. The app appears at `https://<you>.github.io/dataforge/`. If your repo has a different name, set `DATAFORGE_BASE=/your-repo-name/` in the build step or edit `vite.config.ts`.
 
 ## Staying current
 
