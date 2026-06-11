@@ -1,6 +1,6 @@
 <img width="2172" height="724" alt="dataforge" src="https://github.com/user-attachments/assets/52b25641-16ed-4a2f-b799-c7ff6905eb24" />  
 
-# ⚒️ Dataforge Studio
+# ⚒️ Dataforge Studio v2
 
 A workbench for building LLM fine-tuning datasets. Import data from anywhere, edit it in a proper grid, check its quality, generate synthetic examples, and export ready-to-train packages for the frameworks people actually use in 2026.
 
