@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#0b0c0e"/>
+  <!-- anvil silhouette -->
+  <path d="M7 12h18c0 3-3 5-7 5h-1v4h3v3H12v-3h3v-4h-2c-4 0-6-2-6-5z" fill="#f6932b"/>
+  <!-- spark -->
+  <circle cx="24.5" cy="8.5" r="1.6" fill="#ffe8c2"/>
+  <circle cx="20.5" cy="6.5" r="1" fill="#ffc46b"/>
+</svg>

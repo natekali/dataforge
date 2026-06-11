@@ -1,0 +1,202 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   DataForge V2 — "The Forge" design system.
+
+   Industrial precision instrument: graphite steel surfaces, hairline borders,
+   molten-amber accent. Heat = quality (cold steel → ember → molten → white-hot).
+   IBM Plex Sans for UI chrome, IBM Plex Mono for every number and data cell.
+   Flat. Dense. No glow, no shimmer, no glass on data surfaces.
+   =========================================================================== */
+
+@custom-variant light (&:where(.light, .light *));
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  /* Graphite scale (dark-first base) */
+  --color-forge-950: #0b0c0e;
+  --color-forge-900: #121316;
+  --color-forge-850: #17181c;
+  --color-forge-800: #1d1f24;
+  --color-forge-700: #26282e;
+  --color-forge-600: #34373f;
+  --color-forge-500: #4b4e57;
+  --color-forge-400: #6b6e76;
+  --color-forge-300: #9a9da4;
+  --color-forge-200: #c6c8cd;
+  --color-forge-100: #e8e9eb;
+  --color-forge-50: #f4f4f5;
+
+  /* Molten amber accent ramp */
+  --color-ember-300: #ffd9a8;
+  --color-ember-400: #ffb45e;
+  --color-ember-500: #f6932b;
+  --color-ember-600: #d97a14;
+  --color-ember-700: #a85c0c;
+
+  /* Heat ramp — quality visualization (cold steel → white hot) */
+  --color-heat-cold: #46708a;
+  --color-heat-cool: #5f7d8c;
+  --color-heat-warm: #c98a3d;
+  --color-heat-hot: #f6932b;
+  --color-heat-molten: #ffc46b;
+  --color-heat-white: #ffe8c2;
+
+  /* Signals */
+  --color-ok: #5dbb78;
+  --color-warn: #d9a03f;
+  --color-danger: #e5534b;
+  --color-info: #5b9bd5;
+
+  /* Semantic surfaces (dark defaults; .light overrides below) */
+  --color-bg: var(--color-forge-950);
+  --color-surface: var(--color-forge-900);
+  --color-surface-2: var(--color-forge-850);
+  --color-surface-3: var(--color-forge-800);
+  --color-hairline: var(--color-forge-700);
+  --color-hairline-strong: var(--color-forge-600);
+  --color-ink: #e8e6e1;
+  --color-ink-dim: #9a978f;
+  --color-ink-faint: #66635c;
+  --color-accent: var(--color-ember-500);
+  --color-accent-hover: var(--color-ember-400);
+  --color-accent-ink: #14110b;
+
+  --radius-panel: 0.375rem;
+  --radius-control: 0.25rem;
+}
+
+/* Light theme — "workshop daylight": warm paper, same amber identity */
+.light {
+  --color-bg: #f3f1ec;
+  --color-surface: #faf9f6;
+  --color-surface-2: #efede7;
+  --color-surface-3: #e6e3db;
+  --color-hairline: #d8d4ca;
+  --color-hairline-strong: #c2bdb1;
+  --color-ink: #23211c;
+  --color-ink-dim: #6b675d;
+  --color-ink-faint: #9c978a;
+  --color-accent: #d97a14;
+  --color-accent-hover: #b96409;
+  --color-accent-ink: #fffaf2;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-hairline);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans text-sm leading-normal;
+    overscroll-behavior: none;
+  }
+
+  /* Every numeral in the app reads as instrumentation */
+  .num,
+  td[data-numeric],
+  .font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-ember-500) 30%, transparent);
+  }
+
+  /* Hairline scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-forge-600);
+    border: 3px solid transparent;
+    border-radius: 99px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-forge-500);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  /* Panel: the basic Forge surface — flat, hairline-bordered */
+  .panel {
+    @apply bg-surface border border-hairline rounded-(--radius-panel);
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-2 border-b border-hairline px-3 py-2;
+  }
+
+  /* Technical label — uppercase micro-type used across the workbench */
+  .tech-label {
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-ink-faint;
+  }
+
+  /* Heat chip — quality score rendered as forge heat */
+  .heat-chip {
+    @apply font-mono text-xs tabular-nums rounded-(--radius-control) border px-1.5 py-px;
+  }
+}
+
+@layer utilities {
+  /* Brushed-metal texture for hero/empty states only — never on data surfaces */
+  .texture-brushed {
+    background-image: repeating-linear-gradient(
+        0deg,
+        transparent 0px,
+        transparent 2px,
+        color-mix(in srgb, var(--color-ink) 1.5%, transparent) 3px
+      ),
+      radial-gradient(
+        ellipse 80% 60% at 50% -10%,
+        color-mix(in srgb, var(--color-ember-500) 7%, transparent),
+        transparent
+      );
+  }
+
+  /* Staggered load reveal (the one orchestrated animation) */
+  @keyframes forge-rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-rise {
+    animation: forge-rise 0.35s cubic-bezier(0.2, 0.6, 0.2, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise {
+      animation: none;
+    }
+  }
+}
