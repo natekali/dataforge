@@ -199,9 +199,10 @@ export function AnalyticsPage() {
       for (let i = 0; i < targets.length; i += CHUNK) {
         const slice = targets.slice(i, i + CHUNK);
         const counts = await countTokensFor(slice);
-        const now = Date.now();
-        await db.examples.bulkPut(
-          slice.map((e, j) => ({ ...e, tokenCount: counts[j] ?? null, updatedAt: now })),
+        // Partial updates only: full-row writes would clobber edits made while
+        // counting runs, and derived metadata must not bump updatedAt.
+        await db.examples.bulkUpdate(
+          slice.map((e, j) => ({ key: e.id, changes: { tokenCount: counts[j] ?? null } })),
         );
         done += slice.length;
         toast.loading(`Counting tokens… ${fmtNum(done)} / ${fmtNum(targets.length)}`, {

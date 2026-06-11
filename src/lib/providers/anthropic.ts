@@ -54,7 +54,10 @@ function buildBody(req: ChatRequest): Record<string, unknown> {
       .map((m) => ({ role: m.role, content: m.content })),
   };
   if (systemParts.length > 0) body['system'] = systemParts.join('\n\n');
-  if (typeof req.temperature === 'number') body['temperature'] = req.temperature;
+  // Anthropic rejects temperature > 1.0 (the UI slider goes up to 1.2).
+  if (typeof req.temperature === 'number') {
+    body['temperature'] = Math.min(req.temperature, 1);
+  }
   return body;
 }
 

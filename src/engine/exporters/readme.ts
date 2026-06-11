@@ -239,7 +239,12 @@ function frameworkSection(
         '',
         codeBlock('bash', 'pip install openai'),
         '',
-        codeBlock('python', openAiFtSnippet(options, (stats?.bySplit.validation ?? 0) > 0)),
+        codeBlock(
+          'python',
+          // Without split files every example merges into data/train.jsonl,
+          // so the snippet must not reference data/validation.jsonl.
+          openAiFtSnippet(options, options.splitFiles && (stats?.bySplit.validation ?? 0) > 0),
+        ),
         '',
         options.datasetType === 'preference'
           ? 'Rows use the DPO format (`input` / `preferred_output` / `non_preferred_output`).'

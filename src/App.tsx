@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import { CommandPalette } from '@/components/layout/CommandPalette';
+import { db } from '@/lib/db';
 import { useGlobalHotkeys } from '@/lib/hotkeys';
 import { useUiStore } from '@/lib/store';
 
@@ -23,6 +24,21 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle('light', theme === 'light');
   }, [theme]);
+
+  // Jobs interrupted by a reload would spin forever; fail stale ones once at
+  // startup. The 60s grace period spares live jobs running in another tab.
+  useEffect(() => {
+    const cutoff = Date.now() - 60_000;
+    void db.jobs
+      .where('status')
+      .anyOf(['pending', 'running'])
+      .filter((j) => j.updatedAt < cutoff)
+      .modify({
+        status: 'failed',
+        error: 'Interrupted by page reload',
+        updatedAt: Date.now(),
+      });
+  }, []);
 
   return (
     <TooltipProvider>

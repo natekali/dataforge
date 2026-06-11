@@ -1,7 +1,8 @@
 /**
- * Virtualized dataset grid — fixed 36px rows over up to 50k filtered examples.
- * Row click opens the inspector (?ex=id); checkboxes drive the bulk-action
- * selection in the UI store, with shift-click range selection.
+ * Virtualized dataset grid — fixed 36px rows over the page's filtered data.
+ * Purely presentational: DatasetPage owns the single table scan and passes
+ * the result down. Row click opens the inspector (?ex=id); checkboxes drive
+ * the bulk-action selection in the UI store, with shift-click range selection.
  */
 import { memo, useCallback, useMemo, useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
@@ -9,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, Flag, Inbox } from 'lucide-react';
 import type { Example, SplitName } from '@/engine/types';
-import { useFilteredExamples, type ExampleFilters } from '@/lib/hooks';
+import type { FilteredDataset } from '@/lib/hooks';
 import { useUiStore } from '@/lib/store';
 import { cn, fmtNum, fmtRelativeTime } from '@/lib/utils';
 import { HeatBadge, TypeBadge } from '@/components/ui/Badge';
@@ -19,7 +20,6 @@ import { EmptyState } from '@/components/ui/EmptyState';
 
 const ROW_HEIGHT = 36;
 const PREVIEW_LEN = 110;
-const PAGE = { offset: 0, limit: 50_000 };
 const EMPTY_ROWS: Example[] = [];
 
 /** Shared column template — header and rows must stay in lockstep. */
@@ -166,16 +166,15 @@ const Row = memo(function Row({
 });
 
 export interface DataGridProps {
-  projectId: string;
-  filters: ExampleFilters;
+  /** Result of the page-level useFilteredDataset scan (undefined while loading). */
+  data: FilteredDataset | undefined;
   /** Example open in the inspector (?ex= param). */
   activeId: string | null;
   onOpen: (id: string) => void;
   onClearFilters: () => void;
 }
 
-export function DataGrid({ projectId, filters, activeId, onOpen, onClearFilters }: DataGridProps) {
-  const paged = useFilteredExamples(projectId, filters, PAGE);
+export function DataGrid({ data: paged, activeId, onOpen, onClearFilters }: DataGridProps) {
   const selection = useUiStore((s) => s.selection);
   const rows = paged?.rows ?? EMPTY_ROWS;
 
@@ -183,6 +182,24 @@ export function DataGrid({ projectId, filters, activeId, onOpen, onClearFilters 
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const lastCheckedIndex = useRef<number | null>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+
+  // Clicking a different row while the inspector holds unsaved edits would
+  // silently drop them; ask first.
+  const handleOpen = useCallback(
+    (id: string) => {
+      if (
+        id !== activeIdRef.current &&
+        useUiStore.getState().inspectorDirty &&
+        !window.confirm('Discard unsaved changes?')
+      ) {
+        return;
+      }
+      onOpen(id);
+    },
+    [onOpen],
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -344,7 +361,7 @@ export function DataGrid({ projectId, filters, activeId, onOpen, onClearFilters 
               start={vi.start}
               selected={selection.has(example.id)}
               active={example.id === activeId}
-              onOpen={onOpen}
+              onOpen={handleOpen}
               onToggle={toggleSelect}
               onCheckboxClick={handleCheckboxClick}
             />

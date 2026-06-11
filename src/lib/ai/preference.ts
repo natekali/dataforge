@@ -69,19 +69,23 @@ export function promptPortion(messages: Message[]): Message[] | null {
  * Build the chat request for one candidate sample. The candidate index is
  * embedded in the leading system message so each candidate has a distinct
  * cache key — otherwise {@link cachedChat} would collapse all N samples into
- * one cached response.
+ * one cached response. The run nonce keeps cache keys distinct ACROSS runs so
+ * re-running the same sources samples fresh candidates instead of recreating
+ * identical pairs, while retries within one run still hit the cache.
  */
 function candidateRequestMessages(
   prompt: Message[],
   candidateIndex: number,
   totalCandidates: number,
+  runNonce: string,
 ): ChatMessage[] {
   const header: ChatMessage = {
     role: 'system',
     content:
       `Candidate ${candidateIndex + 1} of ${totalCandidates}. ` +
       'You are the assistant in the conversation below. Write your single best response to the ' +
-      'latest user message. Different candidates should explore genuinely different approaches.',
+      'latest user message. Different candidates should explore genuinely different approaches.\n' +
+      `batch seed: ${runNonce}`,
   };
   const mapped: ChatMessage[] = prompt.map((m) => {
     switch (m.role) {
@@ -170,6 +174,9 @@ export function buildPreferencePairs(opts: BuildPreferencePairsOptions): BatchHa
     : DEFAULT_CANDIDATES;
   const database = resolveDb(opts.dbOverride);
 
+  // One nonce per RUN so identical settings sample fresh candidates on re-run.
+  const runNonce = crypto.randomUUID();
+
   const createdIds: string[] = [];
   const params: Record<string, unknown> = {
     provider: opts.provider.id,
@@ -200,7 +207,7 @@ export function buildPreferencePairs(opts: BuildPreferencePairsOptions): BatchHa
             opts.provider,
             {
               model: opts.model,
-              messages: candidateRequestMessages(prompt, i, candidateCount),
+              messages: candidateRequestMessages(prompt, i, candidateCount, runNonce),
               temperature: CANDIDATE_TEMPERATURE,
               signal,
             },

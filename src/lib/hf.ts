@@ -12,7 +12,7 @@
  * datasets).
  */
 
-import { asyncBufferFromUrl, parquetMetadataAsync, parquetReadObjects } from 'hyparquet';
+import { asyncBufferFromUrl, parquetMetadataAsync, parquetReadObjects, toJson } from 'hyparquet';
 import { compressors } from 'hyparquet-compressors';
 
 // ---------------------------------------------------------------------------
@@ -141,6 +141,13 @@ function sleep(ms: number): Promise<void> {
 
 function authHeaders(hfToken?: string): Record<string, string> | undefined {
   return hfToken ? { Authorization: `Bearer ${hfToken}` } : undefined;
+}
+
+/** Throw the canonical AbortError once the signal has been triggered. */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  }
 }
 
 /** Extract a human-readable message from an error response body. */
@@ -415,7 +422,7 @@ export async function importViaParquet(
   split: string,
   opts: HfImportOptions = {},
 ): Promise<unknown[]> {
-  const { maxRows, onProgress, hfToken } = opts;
+  const { maxRows, onProgress, hfToken, signal } = opts;
   const files = (await listParquetFiles(id, opts)).filter(
     (file) => file.config === config && file.split === split,
   );
@@ -424,10 +431,11 @@ export async function importViaParquet(
       `No parquet files found for dataset "${id}" (config "${config}", split "${split}")`,
     );
   }
+  throwIfAborted(signal);
 
-  const requestInit: RequestInit | undefined = hfToken
-    ? { headers: { Authorization: `Bearer ${hfToken}` } }
-    : undefined;
+  // The signal also rides along on hyparquet's ranged reads.
+  const requestInit: RequestInit = { signal };
+  if (hfToken) requestInit.headers = { Authorization: `Bearer ${hfToken}` };
 
   // Open every shard and read its footer so the row total is known up front.
   const shards = await Promise.all(
@@ -438,6 +446,7 @@ export async function importViaParquet(
         requestInit,
       });
       const metadata = await parquetMetadataAsync(buffer);
+      throwIfAborted(signal);
       return { buffer, metadata, numRows: Number(metadata.num_rows) };
     }),
   );
@@ -448,6 +457,7 @@ export async function importViaParquet(
   const rows: unknown[] = [];
   onProgress?.(0, total);
   for (const shard of shards) {
+    throwIfAborted(signal);
     if (rows.length >= total) break;
     const want = Math.min(total - rows.length, shard.numRows);
     if (want <= 0) continue;
@@ -458,9 +468,12 @@ export async function importViaParquet(
       rowStart: 0,
       rowEnd: want,
     });
+    throwIfAborted(signal);
     for (const row of shardRows) {
       if (rows.length >= total) break;
-      rows.push(row);
+      // Same normalization as the local parquet importer: BigInts become
+      // numbers, dates ISO strings, byte arrays plain arrays.
+      rows.push(toJson(row));
     }
     onProgress?.(rows.length, total);
   }
@@ -516,16 +529,20 @@ export async function importViaRows(
 // URL parsing
 // ---------------------------------------------------------------------------
 
-/** Bare "org/name" repo id (no scheme, exactly two path segments). */
-const BARE_ID_RE = /^[\w.-]+\/[\w.-]+$/;
+/** Bare repo id: "org/name" or a canonical no-namespace id like "squad". */
+const BARE_ID_RE = /^[\w.-]+(?:\/[\w.-]+)?$/;
+
+/** Repo sub-paths that can directly follow a canonical dataset name. */
+const DATASET_SUBPATHS = new Set(['viewer', 'tree', 'blob', 'resolve']);
 
 /**
  * Parse a user-supplied HuggingFace dataset reference.
  *
  * Accepted forms (behaviour ported from dataforge_core/url_parser.py):
- *  - bare repo id:            `org/name`
+ *  - bare repo id:            `org/name` or canonical `name` (e.g. "squad")
  *  - hf shorthand:            `hf://org/name[/config[/split]]`
  *  - hub URLs:                `https://huggingface.co/datasets/org/name`
+ *                             and canonical `.../datasets/name`
  *    - viewer paths:          `.../viewer/{config}[/{split}]`
  *    - tree paths:            `.../tree/{revision}` (revision is ignored)
  *    - query params:          `?config=...&split=...` (override path values)
@@ -566,18 +583,24 @@ export function parseHfUrl(input: string): ParsedHfRef | null {
     if (!isHfHost) return null;
 
     const parts = url.pathname.split('/').filter((part) => part.length > 0);
-    if (parts.length < 3 || parts[0] !== 'datasets') return null;
+    if (parts.length < 2 || parts[0] !== 'datasets') return null;
 
+    // Canonical single-segment id ("squad") when nothing follows the name or
+    // the next segment is a repo sub-path; "org/name" otherwise.
+    const canonical = parts.length === 2 || DATASET_SUBPATHS.has(parts[2]);
     const ref: ParsedHfRef = {
-      id: `${decodeURIComponent(parts[1])}/${decodeURIComponent(parts[2])}`,
+      id: canonical
+        ? decodeURIComponent(parts[1])
+        : `${decodeURIComponent(parts[1])}/${decodeURIComponent(parts[2])}`,
     };
+    const rest = parts.slice(canonical ? 2 : 3);
 
-    // /datasets/{org}/{name}/viewer/{config}[/{split}]
-    if (parts.length >= 5 && parts[3] === 'viewer') {
-      ref.config = decodeURIComponent(parts[4]);
-      if (parts.length >= 6) ref.split = decodeURIComponent(parts[5]);
+    // .../viewer/{config}[/{split}]
+    if (rest.length >= 2 && rest[0] === 'viewer') {
+      ref.config = decodeURIComponent(rest[1]);
+      if (rest.length >= 3) ref.split = decodeURIComponent(rest[2]);
     }
-    // /datasets/{org}/{name}/tree/{revision} — revision intentionally ignored.
+    // .../tree/{revision} — revision intentionally ignored.
 
     const queryConfig = url.searchParams.get('config');
     const querySplit = url.searchParams.get('split');
@@ -586,7 +609,7 @@ export function parseHfUrl(input: string): ParsedHfRef | null {
     return ref;
   }
 
-  // Bare "org/name".
+  // Bare "org/name" or canonical "name".
   if (BARE_ID_RE.test(trimmed)) {
     return { id: trimmed };
   }

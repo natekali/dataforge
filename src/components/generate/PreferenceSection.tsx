@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { GitCompare } from 'lucide-react';
 import type { Job } from '@/engine/types';
 import { buildPreferencePairs } from '@/lib/ai/preference';
+import { db } from '@/lib/db';
 import { fmtNum } from '@/lib/utils';
 import type { ProviderSelection } from '@/components/shared/ProviderModelPicker';
 import { Button } from '@/components/ui/Button';
@@ -81,7 +82,17 @@ export function PreferenceSection({
 
   async function handleRun() {
     if (provider === null || provider.model.trim() === '' || busy) return;
-    const ids = (await targetsRef.current?.resolve()) ?? [];
+    const resolved = (await targetsRef.current?.resolve()) ?? [];
+    // Candidate sampling only makes sense on SFT sources; drop anything else.
+    const sftIds = new Set<string>(
+      (await db.examples
+        .where('[projectId+type]')
+        .equals([projectId, 'sft'])
+        .primaryKeys()) as string[],
+    );
+    const ids = resolved.filter((id) => sftIds.has(id));
+    const skipped = resolved.length - ids.length;
+    if (skipped > 0) toast(`Skipped ${fmtNum(skipped)} non-SFT examples.`);
     if (ids.length === 0) {
       toast.error('No SFT examples match the target.');
       return;

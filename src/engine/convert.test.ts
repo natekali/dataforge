@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DetectedSchema, SourceFormat } from '@/engine/types';
 import { createExample } from '@/engine/types';
 import { detectFormat } from '@/engine/detection';
+import { buildCanonicalRows } from '@/engine/exporters/jsonl';
 import {
   MAX_IMPORT_ERRORS,
   ROLE_ALIASES,
@@ -24,6 +25,19 @@ function importRows(rows: unknown[]) {
 function schemaOf(format: SourceFormat, fieldMapping: Record<string, string> = {}): DetectedSchema {
   return { format, confidence: 1, fieldMapping, sampleCount: 0, warnings: [] };
 }
+
+/** Wrapped OpenAI tool definition as it appears on source rows. */
+const RAW_TOOLS = [
+  {
+    type: 'function',
+    function: { name: 'search', description: 'Web search', parameters: { type: 'object' } },
+  },
+];
+
+/** The canonical ToolDefinition produced from {@link RAW_TOOLS}. */
+const CANONICAL_TOOLS = [
+  { name: 'search', description: 'Web search', parameters: { type: 'object' } },
+];
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -459,6 +473,13 @@ describe('rowsToExamples — dpo-pairs', () => {
     expect(result.skipped).toBe(1);
     expect(result.errors[0]).toMatch(/rejected/);
   });
+
+  it('passes through top-level tool definitions', () => {
+    const rows = [{ prompt: 'Q', chosen: 'A', rejected: 'B', tools: RAW_TOOLS }];
+    const [example] = importRows(rows).examples;
+    expect(example.type).toBe('preference');
+    expect(example.tools).toEqual(CANONICAL_TOOLS);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -497,6 +518,58 @@ describe('rowsToExamples — kto-unpaired', () => {
     );
     expect(result.skipped).toBe(1);
     expect(result.errors[0]).toMatch(/label/);
+  });
+
+  it('imports 0/1 and "true"/"false" labels through detection', () => {
+    const rows = [
+      { prompt: 'Q1', completion: 'A1', label: 1 },
+      { prompt: 'Q2', completion: 'A2', label: 0 },
+      { prompt: 'Q3', completion: 'A3', label: 'true' },
+      { prompt: 'Q4', completion: 'A4', label: 'false' },
+    ];
+    const result = importRows(rows);
+    expect(result.skipped).toBe(0);
+    expect(result.examples.map((e) => e.type)).toEqual(['kto', 'kto', 'kto', 'kto']);
+    expect(result.examples.map((e) => e.label)).toEqual([true, false, true, false]);
+  });
+
+  it('passes through top-level tool definitions', () => {
+    const rows = [{ prompt: 'Q', completion: 'A', label: true, tools: RAW_TOOLS }];
+    const [example] = importRows(rows).examples;
+    expect(example.type).toBe('kto');
+    expect(example.tools).toEqual(CANONICAL_TOOLS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RL import (canonical messages + answer)
+// ---------------------------------------------------------------------------
+
+describe('rowsToExamples — rl', () => {
+  it('imports prompt-only rows with a string answer as rl examples', () => {
+    const rows = [{ messages: [{ role: 'user', content: 'Compute 2+2.' }], answer: '4' }];
+    const result = importRows(rows);
+    expect(result.skipped).toBe(0);
+    const [example] = result.examples;
+    expect(example.type).toBe('rl');
+    expect(example.answer).toBe('4');
+    expect(example.messages).toEqual([{ role: 'user', content: 'Compute 2+2.' }]);
+    expect(example.meta['sourceFormat']).toBe('openai-messages');
+  });
+
+  it('keeps rows with an assistant turn as sft, ignoring a stray answer', () => {
+    const rows = [
+      {
+        messages: [
+          { role: 'user', content: 'Q' },
+          { role: 'assistant', content: 'A' },
+        ],
+        answer: 'stray',
+      },
+    ];
+    const [example] = importRows(rows).examples;
+    expect(example.type).toBe('sft');
+    expect(example.answer).toBeUndefined();
   });
 });
 
@@ -727,5 +800,43 @@ describe('examplesToRows', () => {
     const { examples } = rowsToExamples([original], schemaOf('openai-messages'), PROJECT);
     const [row] = examplesToRows(examples, 'openai-messages');
     expect(row).toEqual(original);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical JSONL round trip
+// ---------------------------------------------------------------------------
+
+describe('canonical JSONL round trip', () => {
+  it('preserves rl type, answer and tools through export, detection and re-import', () => {
+    const rl = createExample({
+      projectId: PROJECT,
+      type: 'rl',
+      messages: [{ role: 'user', content: 'Compute 2+2.' }],
+      answer: '4',
+      tools: CANONICAL_TOOLS,
+    });
+    const rows = buildCanonicalRows([rl], {
+      options: {
+        framework: 'jsonl',
+        datasetType: 'rl',
+        includeReasoning: true,
+        stripPriorThinking: false,
+        includeSystem: true,
+        splitFiles: false,
+        projectName: 'P',
+      },
+    });
+
+    const schema = detectFormat(rows);
+    expect(schema.format).toBe('openai-messages');
+
+    const result = rowsToExamples(rows, schema, PROJECT);
+    expect(result.skipped).toBe(0);
+    const [example] = result.examples;
+    expect(example.type).toBe('rl');
+    expect(example.answer).toBe('4');
+    expect(example.messages).toEqual([{ role: 'user', content: 'Compute 2+2.' }]);
+    expect(example.tools).toEqual(CANONICAL_TOOLS);
   });
 });

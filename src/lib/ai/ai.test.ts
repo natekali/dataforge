@@ -15,7 +15,14 @@ import {
   type ProviderConfig,
 } from '@/engine/types';
 import type { CacheEntry } from '@/lib/db';
-import { cachedChat, chatCacheKey, runBatch, type ChatFn, type MinimalDb } from './runner';
+import {
+  cachedChat,
+  chatCacheKey,
+  runBatch,
+  uncacheChat,
+  type ChatFn,
+  type MinimalDb,
+} from './runner';
 import { enhanceExamples, extractJson } from './enhance';
 import { generateSynthetic } from './generate';
 import { generateFromDocument } from './docgen';
@@ -80,6 +87,9 @@ function memoryDb(seedExamples: Example[] = []): MemoryDb {
       get: async (key) => cacheRows.get(key),
       put: async (entry) => {
         cacheRows.set(entry.key, entry);
+      },
+      delete: async (key) => {
+        cacheRows.delete(key);
       },
     },
   };
@@ -205,6 +215,49 @@ describe('runBatch', () => {
     expect(job.failed).toBe(2);
     expect(job.error).toBeTruthy();
     expect(db.jobRows.get(handle.jobId)?.status).toBe('failed');
+  });
+
+  it('collects the first 3 distinct error messages and surfaces the first on the job', async () => {
+    const db = memoryDb();
+    const handle = runBatch<number>({
+      projectId: 'proj-1',
+      kind: 'enhance',
+      items: [0, 1, 2, 3, 4, 5],
+      concurrency: 1,
+      params: {},
+      dbOverride: db,
+      worker: async (item) => {
+        if (item === 5) return; // one success keeps the job "completed"
+        throw new Error(`error ${Math.min(item, 3)}`); // items 3 and 4 share a message
+      },
+    });
+    const job = await handle.promise;
+    expect(job.status).toBe('completed');
+    expect(job.failed).toBe(5);
+    expect(job.params['errors']).toEqual(['error 0', 'error 1', 'error 2']);
+    expect(job.error).toBe('error 0');
+    const row = db.jobRows.get(handle.jobId);
+    expect(row?.error).toBe('error 0');
+    expect(row?.params['errors']).toEqual(['error 0', 'error 1', 'error 2']);
+  });
+
+  it('uses the first collected error as the diagnostic when every item fails', async () => {
+    const db = memoryDb();
+    const handle = runBatch<number>({
+      projectId: 'proj-1',
+      kind: 'enhance',
+      items: [0, 1],
+      concurrency: 1,
+      params: {},
+      dbOverride: db,
+      worker: async () => {
+        throw new Error('provider exploded');
+      },
+    });
+    const job = await handle.promise;
+    expect(job.status).toBe('failed');
+    expect(job.error).toBe('provider exploded');
+    expect(job.params['errors']).toEqual(['provider exploded']);
   });
 
   it('completes immediately on an empty item list', async () => {
@@ -336,6 +389,24 @@ describe('cachedChat', () => {
     expect(db.cacheRows.get(key)?.value).toBe(JSON.stringify(result));
   });
 
+  it('uncacheChat deletes the entry so the next call reaches the transport', async () => {
+    const db = memoryDb();
+    let calls = 0;
+    const chatFn: ChatFn = async () => {
+      calls += 1;
+      return { content: `answer ${calls}` };
+    };
+    await cachedChat(provider, req, db, chatFn);
+    expect(db.cacheRows.size).toBe(1);
+
+    await uncacheChat(provider, req, db);
+    expect(db.cacheRows.size).toBe(0);
+
+    const fresh = await cachedChat(provider, req, db, chatFn);
+    expect(calls).toBe(2);
+    expect(fresh.content).toBe('answer 2');
+  });
+
   it('falls back to FNV-1a hex when crypto.subtle is unavailable', async () => {
     vi.stubGlobal('crypto', {});
     try {
@@ -463,8 +534,42 @@ describe('enhanceExamples', () => {
     expect(job.failed).toBe(1);
     expect(job.done).toBe(0);
     expect(job.status).toBe('failed'); // the only item failed
+    expect(job.error).toBeTruthy(); // the parse failure is surfaced on the job
     expect(db.exampleRows.get(example.id)).toEqual(before);
-    expect(calls).toBe(1); // the retry hit the cache, not the transport
+    expect(calls).toBe(2); // unparseable response is uncached, so the retry hit the transport
+    expect(db.cacheRows.size).toBe(0); // no poisoned entry survives the run
+  });
+
+  it('recovers on retry when the first response is unparseable', async () => {
+    const example = sftExample();
+    const db = memoryDb([example]);
+    let calls = 0;
+    const chatFn: ChatFn = async () => {
+      calls += 1;
+      if (calls === 1) return { content: 'not JSON' };
+      return {
+        content: JSON.stringify({
+          messages: [
+            { role: 'user', content: 'What is 2+2?' },
+            { role: 'assistant', content: 'Four.' },
+          ],
+        }),
+      };
+    };
+    const job = await enhanceExamples({
+      projectId: 'proj-1',
+      exampleIds: [example.id],
+      op: 'improve-quality',
+      provider,
+      model: 'test-model',
+      dbOverride: db,
+      chatFn,
+    }).promise;
+
+    expect(calls).toBe(2);
+    expect(job.status).toBe('completed');
+    expect(job.done).toBe(1);
+    expect(db.exampleRows.get(example.id)?.messages[1].content).toBe('Four.');
   });
 
   it('rejects responses whose roles do not match the original conversation', async () => {
@@ -586,6 +691,52 @@ describe('generateSynthetic', () => {
     expect(() =>
       generateSynthetic({ ...base, technique: 'persona', count: 0 }),
     ).toThrow(/count/);
+  });
+
+  it('re-running with identical settings hits the transport again (per-run nonce)', async () => {
+    const db = memoryDb();
+    let calls = 0;
+    const chatFn: ChatFn = async (config, req) => {
+      calls += 1;
+      return generatorChatFn(config, req);
+    };
+    const opts = {
+      projectId: 'proj-1',
+      technique: 'magpie-style' as const,
+      count: 3,
+      topic: 'rust programming',
+      provider,
+      model: 'test-model',
+      dbOverride: db,
+      chatFn,
+    };
+    await generateSynthetic(opts).promise;
+    await generateSynthetic(opts).promise;
+    expect(calls).toBe(2); // one fresh transport call per run, not a cache replay
+    expect(db.cacheRows.size).toBe(2); // distinct cache keys per run
+  });
+
+  it('deletes the cache entry when batch parsing fails so the retry is fresh', async () => {
+    const db = memoryDb();
+    let calls = 0;
+    const chatFn: ChatFn = async () => {
+      calls += 1;
+      return { content: 'no examples here' };
+    };
+    const job = await generateSynthetic({
+      projectId: 'proj-1',
+      technique: 'magpie-style',
+      count: 2,
+      topic: 'rust programming',
+      provider,
+      model: 'test-model',
+      dbOverride: db,
+      chatFn,
+    }).promise;
+
+    expect(job.status).toBe('failed');
+    expect(calls).toBe(2); // retry reached the transport instead of the poisoned cache
+    expect(db.cacheRows.size).toBe(0);
   });
 });
 
@@ -807,6 +958,32 @@ describe('buildPreferencePairs', () => {
     const pair = db.exampleRows.get(createdIds[0]);
     expect(pair?.chosen?.[0]?.content).toBe('candidate-4');
     expect(pair?.rejected?.[0]?.content).toBe('candidate-1');
+  });
+
+  it('samples fresh candidates on a re-run with identical settings (per-run nonce)', async () => {
+    const example = sourceExample();
+    const db = memoryDb([example]);
+    let candidateCalls = 0;
+    const chatFn: ChatFn = async (_config, req) => {
+      if (req.jsonMode === true) {
+        return { content: JSON.stringify({ ranking: [1, 2, 3], tie: false }) };
+      }
+      candidateCalls += 1;
+      const match = /Candidate (\d+) of/.exec(req.messages[0].content);
+      return { content: `candidate-${match?.[1] ?? '?'}` };
+    };
+    const opts = {
+      projectId: 'proj-1',
+      exampleIds: [example.id],
+      provider,
+      model: 'test-model',
+      candidates: 3,
+      dbOverride: db,
+      chatFn,
+    };
+    await buildPreferencePairs(opts).promise;
+    await buildPreferencePairs(opts).promise;
+    expect(candidateCalls).toBe(6); // 3 per run — the second run does not replay the cache
   });
 
   it('counts the item failed when the ranking is not a valid permutation', async () => {

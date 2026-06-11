@@ -14,6 +14,7 @@ import {
   pairToMessages,
   resolveDb,
   runBatch,
+  uncacheChat,
   type BatchHandle,
   type ChatFn,
   type MinimalDb,
@@ -184,20 +185,23 @@ export function enhanceExamples(opts: EnhanceExamplesOptions): BatchHandle {
       if (example === undefined) throw new Error(`example ${exampleId} not found`);
 
       const pair = buildEnhancePrompt(opts.op, example.messages, opts.customInstruction);
-      const result = await cachedChat(
-        opts.provider,
-        {
-          model: opts.model,
-          messages: pairToMessages(pair),
-          temperature: ENHANCE_TEMPERATURE,
-          jsonMode: true,
-          signal,
-        },
-        database,
-        opts.chatFn,
-      );
+      const request = {
+        model: opts.model,
+        messages: pairToMessages(pair),
+        temperature: ENHANCE_TEMPERATURE,
+        jsonMode: true,
+        signal,
+      };
+      const result = await cachedChat(opts.provider, request, database, opts.chatFn);
 
-      const merged = mergeEnhanced(example.messages, extractStrictJson(result.content), opts.op);
+      let merged: Message[];
+      try {
+        merged = mergeEnhanced(example.messages, extractStrictJson(result.content), opts.op);
+      } catch (err) {
+        // Drop the poisoned cache entry so the retry gets a fresh response.
+        await uncacheChat(opts.provider, request, database);
+        throw err;
+      }
       await database.examples.update(exampleId, {
         messages: merged,
         updatedAt: Date.now(),

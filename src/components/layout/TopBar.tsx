@@ -16,6 +16,14 @@ import { redo, undo, useUndoStore } from '@/lib/undo';
 import { fmtNum } from '@/lib/utils';
 import type { Project } from '@/engine/types';
 
+/** True on macOS, where the palette shortcut renders as ⌘ instead of Ctrl. */
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /mac/i.test(navigator.platform || navigator.userAgent);
+}
+
+const PALETTE_HINT = isMacPlatform() ? '⌘ K' : 'Ctrl K';
+
 export function TopBar({ project }: { project: Project }) {
   const counts = useProjectCounts();
   const canUndo = useUndoStore((s) => s.undoStack.length > 0);
@@ -79,7 +87,7 @@ export function TopBar({ project }: { project: Project }) {
           onClick={() => setCommandPaletteOpen(true)}
         >
           <Search />
-          <Kbd>Ctrl K</Kbd>
+          <Kbd>{PALETTE_HINT}</Kbd>
         </Button>
         <Tip label={themeLabel}>
           <Button

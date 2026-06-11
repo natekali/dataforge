@@ -27,6 +27,7 @@ import {
   pairToMessages,
   resolveDb,
   runBatch,
+  uncacheChat,
   type BatchHandle,
   type ChatFn,
   type MinimalDb,
@@ -162,6 +163,11 @@ export function generateSynthetic(opts: GenerateSyntheticOptions): BatchHandle {
 
   const database = resolveDb(opts.dbOverride);
 
+  // One nonce per RUN: identical settings still get fresh generations on a
+  // re-run (distinct cache keys), while batches within this run stay cacheable
+  // for the per-item retry.
+  const runNonce = crypto.randomUUID();
+
   const items: BatchSpec[] = [];
   for (let i = 0, remaining = count; remaining > 0; i++, remaining -= BATCH_SIZE) {
     items.push({ batchIndex: i, count: Math.min(BATCH_SIZE, remaining) });
@@ -232,20 +238,26 @@ export function generateSynthetic(opts: GenerateSyntheticOptions): BatchHandle {
     dbOverride: opts.dbOverride,
     worker: async (batch, signal) => {
       const pair = await buildPrompt(batch);
-      const result = await cachedChat(
-        opts.provider,
-        {
-          model: opts.model,
-          messages: pairToMessages(pair),
-          temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
-          jsonMode: true,
-          signal,
-        },
-        database,
-        opts.chatFn,
-      );
+      const request = {
+        model: opts.model,
+        messages: pairToMessages({
+          system: pair.system,
+          user: `${pair.user}\n\nbatch seed: ${runNonce}`,
+        }),
+        temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
+        jsonMode: true,
+        signal,
+      };
+      const result = await cachedChat(opts.provider, request, database, opts.chatFn);
 
-      const pairs = parseGeneratedPairs(extractStrictJson(result.content));
+      let pairs: GeneratedPair[];
+      try {
+        pairs = parseGeneratedPairs(extractStrictJson(result.content));
+      } catch (err) {
+        // Drop the poisoned cache entry so the retry gets a fresh response.
+        await uncacheChat(opts.provider, request, database);
+        throw err;
+      }
       const examples = pairs.map((p) =>
         createExample({
           projectId: opts.projectId,

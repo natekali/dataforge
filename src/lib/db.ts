@@ -88,13 +88,18 @@ export async function getProjectExampleCount(projectId: string): Promise<number>
 }
 
 export async function bulkAddExamples(examples: Example[]): Promise<void> {
-  // Chunk to keep transactions snappy and memory bounded on 100k+ imports.
-  const CHUNK = 5000;
-  for (let i = 0; i < examples.length; i += CHUNK) {
-    await db.examples.bulkPut(examples.slice(i, i + CHUNK));
-  }
+  if (examples.length === 0) return;
   const projectId = examples[0]?.projectId;
-  if (projectId) await db.projects.update(projectId, { updatedAt: Date.now() });
+  // One transaction so a mid-import failure (e.g. quota exhaustion) rolls the
+  // whole import back instead of leaving a partial dataset. Chunked bulkPuts
+  // inside it keep per-call memory bounded on 100k+ imports.
+  await db.transaction('rw', [db.examples, db.projects], async () => {
+    const CHUNK = 5000;
+    for (let i = 0; i < examples.length; i += CHUNK) {
+      await db.examples.bulkPut(examples.slice(i, i + CHUNK));
+    }
+    if (projectId) await db.projects.update(projectId, { updatedAt: Date.now() });
+  });
 }
 
 export async function deleteProjectCascade(projectId: string): Promise<void> {

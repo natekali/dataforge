@@ -2,6 +2,7 @@
  * The frame every project page lives in: NavRail on the left, TopBar above,
  * page content in a no-overflow main region (pages own their own scroll).
  */
+import { useEffect } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
 import { CircleAlert } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/Button';
@@ -10,11 +11,18 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { NavRail } from '@/components/layout/NavRail';
 import { TopBar } from '@/components/layout/TopBar';
 import { useProject, useProjects } from '@/lib/hooks';
+import { useUndoStore } from '@/lib/undo';
 
 export function WorkbenchLayout() {
   const { projectId } = useParams<{ projectId: string }>();
   const projects = useProjects();
   const project = useProject(projectId);
+
+  // Undo history must never cross projects: clear it when the project
+  // changes and when the workbench unmounts.
+  useEffect(() => {
+    return () => useUndoStore.getState().clear();
+  }, [projectId]);
 
   // Projects are loaded and the id is not among them → friendly dead end.
   if (projects && !projects.some((p) => p.id === projectId)) {

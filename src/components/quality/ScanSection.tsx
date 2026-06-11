@@ -170,15 +170,18 @@ export function ScanSection({
 
       setPhase('saving');
       setProgress(0);
-      const now = Date.now();
+      // Partial updates only: writing full rows captured before the (long)
+      // analysis would clobber edits made meanwhile. Derived metadata also
+      // must not bump updatedAt — these are not user edits.
       for (let i = 0; i < examples.length; i += WRITE_CHUNK) {
         const slice = examples.slice(i, i + WRITE_CHUNK);
-        await db.examples.bulkPut(
+        await db.examples.bulkUpdate(
           slice.map((e, j) => ({
-            ...e,
-            qualityScore: result.reports[i + j]?.score ?? null,
-            qualityIssues: result.reports[i + j]?.issues ?? [],
-            updatedAt: now,
+            key: e.id,
+            changes: {
+              qualityScore: result.reports[i + j]?.score ?? null,
+              qualityIssues: result.reports[i + j]?.issues ?? [],
+            },
           })),
         );
         setProgress(Math.min(1, (i + slice.length) / examples.length));

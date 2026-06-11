@@ -2,11 +2,12 @@
  * Export workbench — /p/:projectId/export.
  *
  * Flow top to bottom: framework grid, options, live preview (first 3 exported
- * examples), download row. The exported dataset type is the dominant type
- * among the project's examples (the engine writes only matching examples and
- * records skipped ones in metadata.json); frameworks that cannot represent
- * that type are greyed out. The zip is assembled on the main thread after the
- * next paint so the spinner shows before a long synchronous build.
+ * examples), download row. The exported dataset type defaults to the dominant
+ * type among the project's examples and can be switched via a compact
+ * selector (the engine writes only matching examples and records skipped ones
+ * in metadata.json); frameworks that cannot represent the chosen type are
+ * greyed out. The zip is assembled on the main thread after the next paint so
+ * the spinner shows before a long synchronous build.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -25,12 +26,22 @@ import { Button, buttonVariants } from '@/components/ui/Button';
 import { TypeBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Controls';
 import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select';
 import { FrameworkCard } from '@/components/export/FrameworkCard';
 import { ExportOptionsPanel } from '@/components/export/ExportOptionsPanel';
 import { ExportPreview } from '@/components/export/ExportPreview';
 
 const NO_FILTERS: ExampleFilters = {};
 const PAGE = { offset: 0, limit: 250000 };
+
+/** Above this many uncounted examples, skip the on-the-fly token estimate. */
+const UNCOUNTED_ESTIMATE_LIMIT = 2000;
 
 const FRAMEWORKS: { id: FrameworkId; name: string; description: string }[] = [
   { id: 'jsonl', name: 'JSONL', description: 'OpenAI messages JSONL. Works with every 2026 trainer.' },
@@ -46,7 +57,7 @@ const FRAMEWORKS: { id: FrameworkId; name: string; description: string }[] = [
 
 const TYPE_WORD: Record<DatasetType, string> = {
   sft: 'SFT',
-  preference: 'preference',
+  preference: 'DPO',
   kto: 'KTO',
   rl: 'RL',
 };
@@ -93,14 +104,26 @@ export function ExportPage() {
 
   const rows = data?.rows;
 
-  // Dominant type among the examples; project primary wins ties.
-  const exportedType = useMemo<DatasetType>(() => {
+  // Per-type counts; the dominant type (project primary wins ties) is the
+  // default export choice, overridable via the compact type selector.
+  const { typeCounts, dominantType } = useMemo(() => {
     const counts: Record<DatasetType, number> = { sft: 0, preference: 0, kto: 0, rl: 0 };
     for (const e of rows ?? []) counts[e.type] += 1;
     let best: DatasetType = project?.datasetType ?? 'sft';
     for (const t of DATASET_TYPES) if (counts[t] > counts[best]) best = t;
-    return best;
+    return { typeCounts: counts, dominantType: best };
   }, [rows, project?.datasetType]);
+
+  const presentTypes = useMemo(
+    () => DATASET_TYPES.filter((t) => typeCounts[t] > 0),
+    [typeCounts],
+  );
+
+  // null = follow the dominant type; an explicit choice falls back to the
+  // dominant type if its examples disappear.
+  const [typeChoice, setTypeChoice] = useState<DatasetType | null>(null);
+  const exportedType: DatasetType =
+    typeChoice !== null && typeCounts[typeChoice] > 0 ? typeChoice : dominantType;
 
   const exported = useMemo(
     () => (rows ?? []).filter((e) => e.type === exportedType),
@@ -132,6 +155,9 @@ export function ExportPage() {
       return;
     }
     setEstimatedTokens(null);
+    // Counting thousands of examples on the fly would freeze the page; the
+    // Analytics page computes and stores counts in the worker instead.
+    if (storedTokens.missing.length > UNCOUNTED_ESTIMATE_LIMIT) return;
     void countExamplesAsync(storedTokens.missing).then((r) => {
       if (alive) setEstimatedTokens(r.total);
     });
@@ -139,6 +165,7 @@ export function ExportPage() {
       alive = false;
     };
   }, [storedTokens]);
+  const tooManyUncounted = storedTokens.missing.length > UNCOUNTED_ESTIMATE_LIMIT;
   const totalTokens =
     estimatedTokens == null ? null : storedTokens.total + estimatedTokens;
 
@@ -257,11 +284,35 @@ export function ExportPage() {
         <section className="animate-rise" style={rise()}>
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="tech-label">Framework</h2>
-            <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
-              exporting
-              <TypeBadge type={exportedType} />
-              <span className="font-mono tabular-nums">{fmtNum(exported.length)}</span>
-            </span>
+            {presentTypes.length > 1 ? (
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+                exporting
+                <Select
+                  value={exportedType}
+                  onValueChange={(v) => setTypeChoice(v as DatasetType)}
+                >
+                  <SelectTrigger
+                    className="h-6 w-auto min-w-28 px-2 text-[11px]"
+                    aria-label="Dataset type to export"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presentTypes.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TYPE_WORD[t]} · {fmtNum(typeCounts[t])}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+                exporting
+                <TypeBadge type={exportedType} />
+                <span className="font-mono tabular-nums">{fmtNum(exported.length)}</span>
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
             {FRAMEWORKS.map((f) => (
@@ -282,6 +333,7 @@ export function ExportPage() {
         <ExportOptionsPanel
           className="animate-rise"
           style={rise()}
+          projectId={project.id}
           modelId={modelId ?? null}
           onModelChange={setModelId}
           splitFiles={splitFiles}
@@ -320,7 +372,11 @@ export function ExportPage() {
               )}
             </p>
             <p className="mt-0.5 font-mono text-[11px] tabular-nums text-ink-faint">
-              {totalTokens == null ? 'counting tokens' : `about ${fmtNum(totalTokens)} tokens`}
+              {tooManyUncounted
+                ? `tokens uncounted for ${fmtNum(storedTokens.missing.length)} examples · compute them in Analytics`
+                : totalTokens == null
+                  ? 'counting tokens'
+                  : `about ${fmtNum(totalTokens)} tokens`}
               {data.total > (rows?.length ?? 0) && (
                 <> · packaging first {fmtNum(rows?.length ?? 0)} of {fmtNum(data.total)}</>
               )}

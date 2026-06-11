@@ -48,6 +48,7 @@ export interface MinimalDb {
   cache: {
     get(key: string): Promise<CacheEntry | undefined>;
     put(entry: CacheEntry): Promise<unknown>;
+    delete(key: string): Promise<unknown>;
   };
 }
 
@@ -142,6 +143,28 @@ export async function cachedChat(
 }
 
 /**
+ * Delete the cache entry for a chat request.
+ *
+ * {@link cachedChat} stores responses before the caller has validated them, so
+ * an unparseable response would otherwise poison every retry and future run.
+ * Callers invoke this when they fail to parse a cached response, guaranteeing
+ * the next attempt reaches the transport again.
+ *
+ * @param config     - Provider configuration used for the original call.
+ * @param req        - The exact chat request whose entry should be dropped.
+ * @param dbOverride - Optional database double (tests).
+ */
+export async function uncacheChat(
+  config: ProviderConfig,
+  req: ChatRequest,
+  dbOverride?: MinimalDb,
+): Promise<void> {
+  const database = resolveDb(dbOverride);
+  const key = await chatCacheKey(config, req);
+  await database.cache.delete(key);
+}
+
+/**
  * Convert a system+user prompt pair (the shape produced by every builder in
  * prompts.ts) into the two-message chat request body.
  */
@@ -161,6 +184,9 @@ const MIN_WRITE_INTERVAL_MS = 250;
 
 /** Default number of items processed in parallel. */
 const DEFAULT_CONCURRENCY = 4;
+
+/** How many distinct per-item error messages are kept on the job. */
+const MAX_RECORDED_ERRORS = 3;
 
 /** Options accepted by {@link runBatch}. */
 export interface RunBatchOptions<T> {
@@ -244,6 +270,8 @@ export function runBatch<T>(opts: RunBatchOptions<T>): BatchHandle {
 
   let lastWrite = 0;
   let finished = false;
+  /** First few distinct worker error messages, surfaced on the final job. */
+  const errors: string[] = [];
 
   const snapshot = (): Job => ({ ...job });
 
@@ -271,9 +299,13 @@ export function runBatch<T>(opts: RunBatchOptions<T>): BatchHandle {
       try {
         await opts.worker(item, controller.signal);
         succeeded = true;
-      } catch {
+      } catch (err) {
         // Cancelled mid-flight: count the item neither done nor failed.
         if (controller.signal.aborted) return;
+        const message = err instanceof Error ? err.message : String(err);
+        if (errors.length < MAX_RECORDED_ERRORS && !errors.includes(message)) {
+          errors.push(message);
+        }
       }
     }
     if (succeeded) job.done += 1;
@@ -308,16 +340,18 @@ export function runBatch<T>(opts: RunBatchOptions<T>): BatchHandle {
         job.status = 'cancelled';
       } else if (total > 0 && job.failed === total) {
         job.status = 'failed';
-        job.error = 'every item in the batch failed';
+        job.error = errors[0] ?? 'every item in the batch failed';
       } else {
         job.status = 'completed';
         job.progress = 1;
+        if (job.failed > 0 && errors.length > 0) job.error = errors[0];
       }
     } catch (err) {
       job.status = controller.signal.aborted ? 'cancelled' : 'failed';
       job.error = err instanceof Error ? err.message : String(err);
     } finally {
       finished = true;
+      if (errors.length > 0) job.params['errors'] = errors;
       job.detail = describeProgress(job.done, job.failed, total);
       try {
         await persist(true);

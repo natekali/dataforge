@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { Wand2 } from 'lucide-react';
 import type { Job } from '@/engine/types';
 import { enhanceExamples, type EnhanceOp } from '@/lib/ai/enhance';
+import { db } from '@/lib/db';
+import { withUndo } from '@/lib/undo';
 import { cn, fmtNum } from '@/lib/utils';
 import type { ProviderSelection } from '@/components/shared/ProviderModelPicker';
 import { Button } from '@/components/ui/Button';
@@ -19,6 +21,9 @@ import { Label, Textarea } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Controls';
 import { JobProgress, type ActiveJobHandle } from './JobProgress';
 import { TargetPicker, type TargetPickerHandle } from './TargetPicker';
+
+/** Above this many examples the pre-run snapshot would not fit in RAM. */
+const UNDO_LIMIT = 20000;
 
 const OPS: { id: EnhanceOp; name: string; blurb: string }[] = [
   { id: 'improve-quality', name: 'Improve quality', blurb: 'Clearer, more accurate responses.' },
@@ -70,23 +75,47 @@ export function EnhanceSection({
       toast.error('Write an instruction first.');
       return;
     }
-    const ids = (await targetsRef.current?.resolve()) ?? [];
-    if (ids.length === 0) {
+    const resolved = (await targetsRef.current?.resolve()) ?? [];
+    if (resolved.length === 0) {
       toast.error('No examples match the target.');
+      return;
+    }
+    // Enhancement rewrites assistant turns — only SFT examples benefit.
+    const sftIds = new Set<string>(
+      (await db.examples
+        .where('[projectId+type]')
+        .equals([projectId, 'sft'])
+        .primaryKeys()) as string[],
+    );
+    const ids = resolved.filter((id) => sftIds.has(id));
+    const skipped = resolved.length - ids.length;
+    if (skipped > 0) toast(`Skipped ${fmtNum(skipped)} non-SFT examples.`);
+    if (ids.length === 0) {
+      toast.error('No SFT examples match the target.');
       return;
     }
     setBusy(true);
     try {
-      const handle = enhanceExamples({
-        projectId,
-        exampleIds: ids,
-        op,
-        provider: provider.config,
-        model: provider.model,
-        ...(op === 'custom' ? { customInstruction: instruction } : {}),
-      });
-      setRun({ jobId: handle.jobId, cancel: handle.cancel });
-      announce(await handle.promise);
+      const runJob = async (): Promise<Job> => {
+        const handle = enhanceExamples({
+          projectId,
+          exampleIds: ids,
+          op,
+          provider: provider.config,
+          model: provider.model,
+          ...(op === 'custom' ? { customInstruction: instruction } : {}),
+        });
+        setRun({ jobId: handle.jobId, cancel: handle.cancel });
+        return handle.promise;
+      };
+      if (ids.length > UNDO_LIMIT) {
+        toast('Too many examples for undo. Changes are permanent.');
+        announce(await runJob());
+      } else {
+        await withUndo(`Enhance ${ids.length} examples`, ids, async () => {
+          announce(await runJob());
+        });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Enhancement failed.');
     } finally {

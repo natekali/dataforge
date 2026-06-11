@@ -64,7 +64,10 @@ function hasParallelToolCalls(messages: CanonicalMessage[]): boolean {
 
 /** Supervised chat row: `{ messages, tools?, parallel_tool_calls? }`. */
 function sftRow(ex: Example, ctx: RenderContext): Record<string, unknown> {
-  const messages = renderInline(ex.messages, ctx);
+  // The API only accepts `weight` on assistant messages — strip it elsewhere.
+  const messages = renderInline(ex.messages, ctx).map((m) =>
+    m.role === 'assistant' ? m : stripWeight(m),
+  );
   const row: Record<string, unknown> = { messages };
   const tools = renderToolDefinitions(ex.tools);
   if (tools !== undefined) {

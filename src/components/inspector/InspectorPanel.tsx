@@ -4,7 +4,7 @@
  * and live draft token count; the body mounts the dataset-type editor over a
  * local draft. Saves are explicit (Ctrl+S), wrapped in withUndo.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { toast } from 'sonner';
 import {
@@ -20,6 +20,7 @@ import {
 import type { DatasetType, Example, Message, SplitName } from '@/engine/types';
 import { useExampleTokenCount } from '@/lib/tokensLazy';
 import { useExample } from '@/lib/hooks';
+import { useUiStore } from '@/lib/store';
 import {
   deleteExamples,
   duplicateExample,
@@ -181,6 +182,32 @@ export function InspectorPanel({
     );
   }, []);
 
+  // Mirror dirtiness into the UI store so other surfaces (grid row clicks)
+  // can warn before discarding; the flag clears when the panel unmounts.
+  const setInspectorDirty = useUiStore((s) => s.setInspectorDirty);
+  useEffect(() => {
+    setInspectorDirty(dirty);
+  }, [dirty, setInspectorDirty]);
+  useEffect(() => () => useUiStore.getState().setInspectorDirty(false), []);
+
+  // Warn before the tab closes while edits are unsaved.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  // Focus the panel root so j/k and Ctrl+S work without a click inside.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const loaded = example !== undefined;
+  useEffect(() => {
+    if (loaded) rootRef.current?.focus();
+  }, [exampleId, loaded]);
+
   if (!example) {
     return (
       <div className="flex h-full flex-col">
@@ -295,6 +322,7 @@ export function InspectorPanel({
 
   return (
     <div
+      ref={rootRef}
       className="flex h-full min-h-0 flex-col focus:outline-none"
       tabIndex={-1}
       onKeyDown={handleKeyDown}

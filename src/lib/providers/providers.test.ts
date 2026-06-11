@@ -139,6 +139,48 @@ describe('openai adapter', () => {
     expect(lastBody()['response_format']).toEqual({ type: 'json_object' });
   });
 
+  it('omits temperature and sends max_completion_tokens for o-series models', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(completionPayload({ role: 'assistant', content: 'ok' })),
+    );
+    await adapter.chat(
+      config('openai'),
+      request({ model: 'o3-mini', temperature: 0.7, maxTokens: 256 }),
+    );
+    const body = lastBody();
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('max_tokens');
+    expect(body['max_completion_tokens']).toBe(256);
+  });
+
+  it('omits temperature and sends max_completion_tokens for the gpt-5 family', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(completionPayload({ role: 'assistant', content: 'ok' })),
+    );
+    await adapter.chat(
+      config('openai'),
+      request({ model: 'GPT-5-mini', temperature: 0.3, maxTokens: 128 }),
+    );
+    const body = lastBody();
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('max_tokens');
+    expect(body['max_completion_tokens']).toBe(128);
+  });
+
+  it('keeps temperature and max_tokens for non-reasoning gpt models', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(completionPayload({ role: 'assistant', content: 'ok' })),
+    );
+    await adapter.chat(
+      config('openai'),
+      request({ model: 'gpt-4o-mini', temperature: 0.7, maxTokens: 256 }),
+    );
+    const body = lastBody();
+    expect(body['temperature']).toBe(0.7);
+    expect(body['max_tokens']).toBe(256);
+    expect(body).not.toHaveProperty('max_completion_tokens');
+  });
+
   it('omits optional sampling fields when unset', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(completionPayload({ role: 'assistant', content: 'ok' })),
@@ -368,6 +410,12 @@ describe('anthropic adapter', () => {
     const body = lastBody();
     expect(body['max_tokens']).toBe(1024);
     expect(body['temperature']).toBe(0.7);
+  });
+
+  it('clamps temperature to the API maximum of 1.0', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(textPayload('ok')));
+    await adapter.chat(config('anthropic'), request({ temperature: 1.2 }));
+    expect(lastBody()['temperature']).toBe(1);
   });
 
   it('emulates jsonMode via a system directive', async () => {

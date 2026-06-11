@@ -102,6 +102,17 @@ function isShareGptTurn(value: unknown): boolean {
   return isRecord(value) && typeof value['from'] === 'string' && 'value' in value;
 }
 
+/** Usable KTO label: boolean, 0/1 number, or "true"/"false" string. */
+export function isKtoLabel(value: unknown): boolean {
+  return (
+    typeof value === 'boolean' ||
+    value === 0 ||
+    value === 1 ||
+    value === 'true' ||
+    value === 'false'
+  );
+}
+
 /** True when the row carries a usable DPO/KTO prompt field. */
 function hasPromptField(row: Record<string, unknown>): boolean {
   return DPO_PROMPT_FIELDS.some((field) => {
@@ -138,7 +149,7 @@ export function classifyRow(row: unknown): DetectableFormat | null {
 
   if (
     'completion' in row &&
-    typeof row['label'] === 'boolean' &&
+    isKtoLabel(row['label']) &&
     (typeof row['prompt'] === 'string' || isMessagesArray(row['messages']))
   ) {
     return 'kto-unpaired';

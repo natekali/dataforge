@@ -6,7 +6,7 @@
  * loses an in-progress import. Documents parsed on the File tab hand their
  * text to the Document tab.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
@@ -22,7 +22,32 @@ export function ImportPage() {
   const [tab, setTab] = useState<ImportTab>('file');
   const [doc, setDoc] = useState<{ text: string; title: string } | null>(null);
 
+  // A multi-file drop hands documents up one by one. Keep the first and count
+  // the rest; the ref is reset when the user returns to a non-document tab.
+  const docOpenRef = useRef(false);
+  const skippedDocsRef = useRef(0);
+  const skipToastTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (skipToastTimer.current !== null) window.clearTimeout(skipToastTimer.current);
+    },
+    [],
+  );
+
   const handleDocument = useCallback((d: { text: string; title: string }) => {
+    if (docOpenRef.current) {
+      skippedDocsRef.current += 1;
+      if (skipToastTimer.current !== null) window.clearTimeout(skipToastTimer.current);
+      skipToastTimer.current = window.setTimeout(() => {
+        const n = skippedDocsRef.current;
+        skippedDocsRef.current = 0;
+        skipToastTimer.current = null;
+        toast.info(`One document at a time. ${n} more skipped.`);
+      }, 1000);
+      return;
+    }
+    docOpenRef.current = true;
     setDoc(d);
     setTab('document');
     toast.info(`"${d.title}" is a document. Switched to the Document tab.`);
@@ -43,7 +68,11 @@ export function ImportPage() {
 
         <Tabs
           value={tab}
-          onValueChange={(v) => setTab(v as ImportTab)}
+          onValueChange={(v) => {
+            const next = v as ImportTab;
+            if (next !== 'document') docOpenRef.current = false;
+            setTab(next);
+          }}
           className="animate-rise mt-4"
           style={{ animationDelay: '40ms' }}
         >

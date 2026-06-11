@@ -66,6 +66,14 @@ function exampleText(e: Example): string {
   return parts.join('\n').toLowerCase();
 }
 
+/**
+ * Stable review order: newest imports first, id as tiebreaker. Sorting by
+ * createdAt (not updatedAt) keeps rows in place while saves/flags happen.
+ */
+export function compareExamples(a: Example, b: Example): number {
+  return b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+}
+
 export function matchesFilters(e: Example, f: ExampleFilters): boolean {
   if (f.split && f.split !== 'all' && e.split !== f.split) return false;
   if (f.type && f.type !== 'all' && e.type !== f.type) return false;
@@ -95,7 +103,7 @@ export function useFilteredExamples(
     if (!projectId) return { rows: [], total: 0, projectTotal: 0 };
     const all = await db.examples.where('projectId').equals(projectId).toArray();
     const filtered = all.filter((e) => matchesFilters(e, filters));
-    filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+    filtered.sort(compareExamples);
     return {
       rows: filtered.slice(page.offset, page.offset + page.limit),
       total: filtered.length,
@@ -114,9 +122,38 @@ export function useFilteredIds(
     const all = await db.examples.where('projectId').equals(projectId).toArray();
     return all
       .filter((e) => matchesFilters(e, filters))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort(compareExamples)
       .map((e) => e.id);
   }, [projectId, JSON.stringify(filters)]);
+}
+
+export interface FilteredDataset extends PagedExamples {
+  /** Ordered ids of ALL filtered examples (inspector prev/next navigation). */
+  ids: string[];
+}
+
+/**
+ * Combined rows + ids in a single table scan. Use this when a page needs both
+ * (e.g. the dataset workbench) instead of pairing useFilteredExamples with
+ * useFilteredIds, which scans the project twice per change.
+ */
+export function useFilteredDataset(
+  projectId: string | undefined,
+  filters: ExampleFilters,
+  page: { offset: number; limit: number },
+): FilteredDataset | undefined {
+  return useLiveQuery(async () => {
+    if (!projectId) return { rows: [], total: 0, projectTotal: 0, ids: [] };
+    const all = await db.examples.where('projectId').equals(projectId).toArray();
+    const filtered = all.filter((e) => matchesFilters(e, filters));
+    filtered.sort(compareExamples);
+    return {
+      rows: filtered.slice(page.offset, page.offset + page.limit),
+      total: filtered.length,
+      projectTotal: all.length,
+      ids: filtered.map((e) => e.id),
+    };
+  }, [projectId, JSON.stringify(filters), page.offset, page.limit]);
 }
 
 export function useExample(id: string | null | undefined): Example | undefined {

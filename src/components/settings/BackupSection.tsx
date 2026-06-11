@@ -76,7 +76,8 @@ export function BackupSection() {
         examples,
         // API keys never leave the browser, not even inside backups.
         providers: providers.map(({ apiKey: _apiKey, ...rest }) => rest),
-        settings,
+        // Access tokens (e.g. hf-token) stay local for the same reason.
+        settings: settings.filter((s) => !s.key.toLowerCase().includes('token')),
       };
       const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -165,7 +166,7 @@ export function BackupSection() {
             <div className="text-[13px] text-ink">Full backup</div>
             <p className="text-xs text-ink-dim">
               Projects, examples, provider settings and app settings in one JSON file.
-              API keys are never included.
+              API keys and access tokens are never included.
             </p>
           </div>
           <Button

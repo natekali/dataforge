@@ -18,6 +18,12 @@ import { Spinner } from '@/components/ui/Controls';
 const SAMPLE_COUNT = 5;
 const ERROR_COUNT = 5;
 const PREVIEW_LEN = 110;
+/** Above this, undo snapshots would double the import's memory — skip them. */
+const UNDO_LIMIT = 20_000;
+
+function isQuotaError(err: unknown, message: string): boolean {
+  return (err instanceof Error && err.name === 'QuotaExceededError') || /quota/i.test(message);
+}
 
 function clip(text: string): string {
   const oneLine = text.replace(/\s+/g, ' ').trim();
@@ -49,14 +55,24 @@ export function ImportPreview({
     if (adding || count === 0) return;
     setAdding(true);
     try {
-      await withUndo(`Import ${fmtNum(count)} examples`, [], async () => {
+      if (count > UNDO_LIMIT) {
         await bulkAddExamples(examples);
-        return examples.map((e) => e.id);
-      });
-      toast.success(`Added ${fmtNum(count)} examples`);
+        toast.success(`Added ${fmtNum(count)} examples`);
+      } else {
+        await withUndo(`Import ${fmtNum(count)} examples`, [], async () => {
+          await bulkAddExamples(examples);
+          return examples.map((e) => e.id);
+        });
+        toast.success(`Added ${fmtNum(count)} examples. Ctrl+Z to undo.`);
+      }
       navigate('../data');
     } catch (err) {
-      toast.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(
+        isQuotaError(err, message)
+          ? 'Not enough browser storage. Free space in Settings, then retry.'
+          : `Import failed: ${message}`,
+      );
       setAdding(false);
     }
   }

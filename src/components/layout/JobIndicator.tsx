@@ -1,7 +1,9 @@
 /**
  * Live indicator for active jobs across ALL projects. Hidden when idle.
- * Pure display — cancel controls live on the pages that started the jobs.
+ * Each row carries a dismiss control that marks the job cancelled, so a job
+ * orphaned by a reload never spins here forever.
  */
+import { X } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/DropdownMenu';
 import { Progress, Spinner } from '@/components/ui/Controls';
+import { db } from '@/lib/db';
 import { useActiveJobs } from '@/lib/hooks';
 import { fmtNum } from '@/lib/utils';
 import type { JobKind } from '@/engine/types';
@@ -22,6 +25,10 @@ const KIND_LABELS: Record<JobKind, string> = {
   dedup: 'Duplicate detection',
   'llm-judge': 'LLM judge',
 };
+
+function dismissJob(id: string): void {
+  void db.jobs.update(id, { status: 'cancelled', updatedAt: Date.now() });
+}
 
 export function JobIndicator() {
   const jobs = useActiveJobs();
@@ -47,12 +54,22 @@ export function JobIndicator() {
         <DropdownMenuLabel>Active jobs</DropdownMenuLabel>
         {jobs.map((job) => (
           <div key={job.id} className="px-3 py-2">
-            <div className="flex items-baseline justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <span className="truncate text-xs font-medium text-ink">
                 {KIND_LABELS[job.kind]}
               </span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-dim">
-                {fmtNum(job.done)} / {fmtNum(job.total)}
+              <span className="flex shrink-0 items-center gap-1">
+                <span className="font-mono text-[11px] tabular-nums text-ink-dim">
+                  {fmtNum(job.done)} / {fmtNum(job.total)}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Dismiss ${KIND_LABELS[job.kind]}`}
+                  onClick={() => dismissJob(job.id)}
+                  className="rounded-(--radius-control) p-0.5 text-ink-faint transition-colors duration-100 hover:bg-surface-3 hover:text-ink"
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
               </span>
             </div>
             <Progress value={job.progress} className="mt-1.5" />

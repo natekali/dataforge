@@ -1,8 +1,11 @@
-import { useId, useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { toast } from 'sonner';
 import { getModel, modelsByVendor } from '@/engine/registry';
+import { autoSplit } from '@/lib/mutations';
 import { Badge } from '@/components/ui/Badge';
-import { Switch } from '@/components/ui/Controls';
+import { Button } from '@/components/ui/Button';
+import { Spinner, Switch } from '@/components/ui/Controls';
 import { Label } from '@/components/ui/Input';
 import {
   Select,
@@ -18,7 +21,18 @@ import { cn, fmtCtx, fmtNum } from '@/lib/utils';
 /** Radix Select cannot carry an empty value; sentinel for "no target model". */
 const NO_MODEL = 'none';
 
+/** Train/validation/test ratio presets for auto split assignment. */
+const SPLIT_PRESETS = {
+  '80/10/10': { train: 0.8, validation: 0.1, test: 0.1 },
+  '90/10/0': { train: 0.9, validation: 0.1, test: 0 },
+  '70/15/15': { train: 0.7, validation: 0.15, test: 0.15 },
+} as const;
+type SplitPreset = keyof typeof SPLIT_PRESETS;
+const SPLIT_PRESET_NAMES = Object.keys(SPLIT_PRESETS) as SplitPreset[];
+
 export interface ExportOptionsPanelProps {
+  /** Project whose examples the Splits row reassigns. */
+  projectId: string;
   /** Registry id of the target model, or null for none. */
   modelId: string | null;
   onModelChange: (id: string | null) => void;
@@ -74,6 +88,7 @@ function OptionRow({
 
 /** Target model picker plus the file/system/reasoning switches. */
 export function ExportOptionsPanel({
+  projectId,
   modelId,
   onModelChange,
   splitFiles,
@@ -89,7 +104,26 @@ export function ExportOptionsPanel({
   style,
 }: ExportOptionsPanelProps) {
   const modelSelectId = useId();
+  const splitSelectId = useId();
   const model = modelId === null ? undefined : getModel(modelId);
+
+  const [splitPreset, setSplitPreset] = useState<SplitPreset>('80/10/10');
+  const [assigning, setAssigning] = useState(false);
+
+  async function handleAssignSplits(): Promise<void> {
+    if (assigning) return;
+    setAssigning(true);
+    try {
+      const r = await autoSplit(projectId, SPLIT_PRESETS[splitPreset]);
+      toast.success(
+        `Splits assigned: ${fmtNum(r.train)} train, ${fmtNum(r.validation)} validation, ${fmtNum(r.test)} test`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Split assignment failed');
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   const vendors = useMemo(() => {
     const groups = modelsByVendor();
@@ -177,6 +211,47 @@ export function ExportOptionsPanel({
             onCheckedChange={onStripPriorThinkingChange}
             disabled={!hasReasoning || !includeReasoning}
           />
+          <div className="flex items-center justify-between gap-4 py-2.5">
+            <div className="min-w-0">
+              <label
+                htmlFor={splitSelectId}
+                className="block text-[13px] font-medium text-ink"
+              >
+                Splits
+              </label>
+              <p className="text-[11px] text-ink-dim">
+                Random train/validation/test assignment. Overwrites current splits.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Select
+                value={splitPreset}
+                onValueChange={(v) => setSplitPreset(v as SplitPreset)}
+              >
+                <SelectTrigger
+                  id={splitSelectId}
+                  className="h-7 w-28 px-2 font-mono text-xs tabular-nums"
+                  aria-label="Split ratios"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SPLIT_PRESET_NAMES.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                onClick={() => void handleAssignSplits()}
+                disabled={assigning}
+              >
+                {assigning && <Spinner />} Assign
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </section>

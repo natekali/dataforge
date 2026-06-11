@@ -9,12 +9,15 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useFilteredIds, useProjectCounts, type ExampleFilters } from '@/lib/hooks';
+import { useFilteredDataset, type ExampleFilters } from '@/lib/hooks';
 import { useUiStore } from '@/lib/store';
+import { fmtNum } from '@/lib/utils';
 import { BulkActionBar } from '@/components/dataset/BulkActionBar';
 import { DataGrid } from '@/components/dataset/DataGrid';
 import { FilterBar } from '@/components/dataset/FilterBar';
 import { InspectorPanel } from '@/components/inspector/InspectorPanel';
+
+const PAGE = { offset: 0, limit: 100_000 };
 
 const DEFAULT_FILTERS: ExampleFilters = {
   split: 'all',
@@ -66,13 +69,25 @@ export function DatasetPage() {
   const selectionCount = useUiStore((s) => s.selection.size);
   const clearSelection = useUiStore((s) => s.clearSelection);
 
-  const filteredIds = useFilteredIds(projectId, filters);
-  const counts = useProjectCounts();
+  // One scan serves the whole page: rows feed totals, ids feed the inspector.
+  const data = useFilteredDataset(projectId, filters, PAGE);
+  const filteredIds = data?.ids;
 
   // A selection from another project must never feed bulk actions here.
   useEffect(() => {
     clearSelection();
   }, [projectId, clearSelection]);
+
+  // Drop selected ids that no longer match the current data (deleted rows or
+  // changed filters) so bulk actions never touch invisible examples.
+  useEffect(() => {
+    if (!filteredIds) return;
+    const { selection, setSelection } = useUiStore.getState();
+    if (selection.size === 0) return;
+    const existing = new Set(filteredIds);
+    const pruned = new Set([...selection].filter((id) => existing.has(id)));
+    if (pruned.size !== selection.size) setSelection(pruned);
+  }, [filteredIds]);
 
   // Mirror filter state into the URL (preserving ?ex) so views are shareable.
   useEffect(() => {
@@ -100,18 +115,9 @@ export function DatasetPage() {
 
   const exampleId = searchParams.get('ex');
 
+  // Replace, never push: Back should leave the page, not walk through every
+  // example inspected along the way.
   const openExample = useCallback(
-    (id: string) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('ex', id);
-        return next;
-      });
-    },
-    [setSearchParams],
-  );
-
-  const navigateExample = useCallback(
     (id: string) => {
       setSearchParams(
         (prev) => {
@@ -147,14 +153,13 @@ export function DatasetPage() {
         filters={filters}
         onPatch={patchFilters}
         onClear={clearFilters}
-        filteredCount={filteredIds?.length}
-        totalCount={counts?.[projectId]}
+        filteredCount={data?.total}
+        totalCount={data?.projectTotal}
       />
       {selectionCount > 0 && <BulkActionBar />}
       <div className="flex min-h-0 flex-1">
         <DataGrid
-          projectId={projectId}
-          filters={filters}
+          data={data}
           activeId={exampleId}
           onOpen={openExample}
           onClearFilters={clearFilters}
@@ -168,11 +173,16 @@ export function DatasetPage() {
               exampleId={exampleId}
               onClose={closeInspector}
               filteredIds={filteredIds}
-              onNavigate={navigateExample}
+              onNavigate={openExample}
             />
           </aside>
         )}
       </div>
+      {data && data.total > data.rows.length && (
+        <p className="border-t border-hairline px-3 py-1.5 text-[11px] text-ink-faint">
+          Showing the first {fmtNum(data.rows.length)} matches.
+        </p>
+      )}
     </div>
   );
 }

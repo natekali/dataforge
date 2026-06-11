@@ -194,17 +194,31 @@ export function splitReasoning(
 // ---------------------------------------------------------------------------
 
 /**
+ * OpenAI reasoning-model families (o1/o3/…, gpt-5*): these reject the
+ * `temperature` parameter and take `max_completion_tokens` instead of
+ * `max_tokens`.
+ */
+const REASONING_MODEL_ID = /^(o\d|gpt-5)/i;
+
+/**
  * Map a canonical {@link ChatRequest} onto an OpenAI chat-completions body.
  * Optional sampling fields are omitted entirely when unset; `jsonMode` maps
- * to `response_format: {type: "json_object"}`.
+ * to `response_format: {type: "json_object"}`. For o-series and gpt-5 family
+ * models `temperature` is omitted entirely and the output cap is sent as
+ * `max_completion_tokens` (those models reject the legacy parameters).
  */
 export function buildChatCompletionsBody(req: ChatRequest): Record<string, unknown> {
+  const reasoningModel = REASONING_MODEL_ID.test(req.model);
   const body: Record<string, unknown> = {
     model: req.model,
     messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
   };
-  if (typeof req.temperature === 'number') body['temperature'] = req.temperature;
-  if (typeof req.maxTokens === 'number') body['max_tokens'] = req.maxTokens;
+  if (typeof req.temperature === 'number' && !reasoningModel) {
+    body['temperature'] = req.temperature;
+  }
+  if (typeof req.maxTokens === 'number') {
+    body[reasoningModel ? 'max_completion_tokens' : 'max_tokens'] = req.maxTokens;
+  }
   if (req.jsonMode) body['response_format'] = { type: 'json_object' };
   return body;
 }

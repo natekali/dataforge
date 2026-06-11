@@ -310,10 +310,24 @@ function convertOpenAiRow(row: unknown, projectId: string): Example {
   }
   const messages = raw.map((item, index) => normalizeMessage(item, index));
   applyRowReasoning(record, messages);
+  const tools = normalizeToolDefinitions(record['tools']);
+  // RL rows (prompt-only conversation + verifiable answer) share the canonical
+  // messages shape — keep their type and answer instead of degrading to SFT.
+  const answer = record['answer'];
+  if (typeof answer === 'string' && !messages.some((m) => m.role === 'assistant')) {
+    return createExample({
+      projectId,
+      type: 'rl',
+      messages,
+      answer,
+      tools,
+      meta: { sourceFormat: 'openai-messages' },
+    });
+  }
   return createExample({
     projectId,
     messages,
-    tools: normalizeToolDefinitions(record['tools']),
+    tools,
     meta: { sourceFormat: 'openai-messages' },
   });
 }
@@ -378,6 +392,7 @@ function convertDpoRow(row: unknown, projectId: string): Example {
     messages,
     chosen,
     rejected,
+    tools: normalizeToolDefinitions(record['tools']),
     meta: { sourceFormat: 'dpo-pairs' },
   });
 }
@@ -387,7 +402,7 @@ function normalizeLabel(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   if (value === 0 || value === 1) return value === 1;
   if (value === 'true' || value === 'false') return value === 'true';
-  throw new Error('"label" must be a boolean');
+  throw new Error('"label" must be a boolean, 0/1, or "true"/"false"');
 }
 
 function convertKtoRow(row: unknown, projectId: string): Example {
@@ -401,6 +416,7 @@ function convertKtoRow(row: unknown, projectId: string): Example {
     messages,
     completion,
     label,
+    tools: normalizeToolDefinitions(record['tools']),
     meta: { sourceFormat: 'kto-unpaired' },
   });
 }

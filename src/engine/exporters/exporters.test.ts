@@ -654,6 +654,27 @@ describe('openai-ft', () => {
     expect(row['non_preferred_output'][0]['content']).toBe('8');
   });
 
+  it('strips loss weights from non-assistant messages in sft rows', () => {
+    const ex = createExample({
+      projectId: PROJECT,
+      type: 'sft',
+      messages: [
+        { role: 'system', content: 'S', weight: 0 },
+        { role: 'user', content: 'Q', weight: 0 },
+        { role: 'assistant', content: 'A', weight: 0 },
+      ],
+    });
+    const bundle = buildExportBundle(
+      [ex],
+      makeOptions({ framework: 'openai-ft', datasetType: 'sft' }),
+      QWEN,
+    );
+    const messages = rows(bundle)[0]!['messages'] as Row[];
+    expect(messages[0]!['weight']).toBeUndefined();
+    expect(messages[1]!['weight']).toBeUndefined();
+    expect(messages[2]!['weight']).toBe(0); // assistant weight survives
+  });
+
   it('strips loss weights from preference rows', () => {
     const ex = createExample({
       projectId: PROJECT,
@@ -889,5 +910,28 @@ describe('readme', () => {
     const readme = fileContent(bundle, 'README.md');
     expect(readme).toContain('data/validation.jsonl');
     expect(readme).toContain('validation_file=validation_file.id');
+  });
+
+  it('omits the validation upload when splitFiles is off, even with validation examples', () => {
+    const examples = [
+      ...sftExamples(),
+      createExample({
+        projectId: PROJECT,
+        type: 'sft',
+        split: 'validation',
+        messages: [
+          { role: 'user', content: 'V' },
+          { role: 'assistant', content: 'v' },
+        ],
+      }),
+    ];
+    const bundle = buildExportBundle(
+      examples,
+      makeOptions({ framework: 'openai-ft', splitFiles: false }),
+      QWEN,
+    );
+    const readme = fileContent(bundle, 'README.md');
+    expect(readme).not.toContain('data/validation.jsonl');
+    expect(readme).not.toContain('validation_file');
   });
 });

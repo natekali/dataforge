@@ -18,6 +18,19 @@ import {
   searchDatasets,
 } from './hf';
 
+// Parquet decoding needs real bytes; stub hyparquet's read path while keeping
+// the real toJson so normalization is exercised for real.
+const hyparquetMocks = vi.hoisted(() => ({
+  asyncBufferFromUrl: vi.fn(),
+  parquetMetadataAsync: vi.fn(),
+  parquetReadObjects: vi.fn(),
+}));
+
+vi.mock('hyparquet', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('hyparquet')>();
+  return { ...actual, ...hyparquetMocks };
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -47,6 +60,9 @@ function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promi
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  hyparquetMocks.asyncBufferFromUrl.mockReset();
+  hyparquetMocks.parquetMetadataAsync.mockReset();
+  hyparquetMocks.parquetReadObjects.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -134,13 +150,29 @@ describe('parseHfUrl', () => {
     });
   });
 
+  it('parses a canonical no-namespace id', () => {
+    expect(parseHfUrl('squad')).toEqual({ id: 'squad' });
+  });
+
+  it('parses a canonical hub dataset URL', () => {
+    expect(parseHfUrl('https://huggingface.co/datasets/squad')).toEqual({ id: 'squad' });
+  });
+
+  it('parses canonical viewer paths with config and split', () => {
+    expect(
+      parseHfUrl('https://huggingface.co/datasets/squad/viewer/plain_text/train'),
+    ).toEqual({ id: 'squad', config: 'plain_text', split: 'train' });
+  });
+
+  it('parses canonical tree paths, ignoring the revision', () => {
+    expect(parseHfUrl('https://huggingface.co/datasets/squad/tree/main')).toEqual({
+      id: 'squad',
+    });
+  });
+
   it('returns null for empty input', () => {
     expect(parseHfUrl('')).toBeNull();
     expect(parseHfUrl('   ')).toBeNull();
-  });
-
-  it('returns null for a single-segment name', () => {
-    expect(parseHfUrl('alpaca')).toBeNull();
   });
 
   it('returns null for non-HF hosts', () => {
@@ -150,7 +182,6 @@ describe('parseHfUrl', () => {
 
   it('returns null for hub URLs that are not dataset pages', () => {
     expect(parseHfUrl('https://huggingface.co/tatsu-lab/alpaca')).toBeNull();
-    expect(parseHfUrl('https://huggingface.co/datasets/alpaca')).toBeNull();
   });
 
   it('returns null for incomplete hf:// references', () => {
@@ -526,8 +557,33 @@ describe('importViaRows', () => {
 });
 
 // ---------------------------------------------------------------------------
-// importViaParquet (network-free paths only — parquet decoding needs real bytes)
+// importViaParquet (hyparquet read path stubbed; toJson is the real thing)
 // ---------------------------------------------------------------------------
+
+/** Stub the /parquet listing with a single matching shard. */
+function stubParquetListing(): void {
+  stubFetch(() =>
+    Promise.resolve(
+      jsonResponse({
+        parquet_files: [
+          { config: 'default', split: 'train', url: 'https://example.org/0.parquet', size: 100 },
+        ],
+      }),
+    ),
+  );
+}
+
+/** Wire the hyparquet mocks to serve `rows` from one shard. */
+function stubShard(rows: unknown[]): void {
+  hyparquetMocks.asyncBufferFromUrl.mockResolvedValue({
+    byteLength: 100,
+    slice: () => new ArrayBuffer(0),
+  });
+  hyparquetMocks.parquetMetadataAsync.mockResolvedValue({ num_rows: BigInt(rows.length) });
+  hyparquetMocks.parquetReadObjects.mockImplementation(
+    ({ rowEnd }: { rowEnd: number }) => Promise.resolve(rows.slice(0, rowEnd)),
+  );
+}
 
 describe('importViaParquet', () => {
   it('throws when no parquet shard matches the requested config/split', async () => {
@@ -555,5 +611,75 @@ describe('importViaParquet', () => {
     );
     expect(error).toBeInstanceOf(HfHubError);
     expect((error as HfHubError).status).toBe(401);
+  });
+
+  it('normalizes BigInt and Date values like the local parquet importer', async () => {
+    stubParquetListing();
+    stubShard([
+      { id: 1n, when: new Date('2026-01-02T03:04:05.000Z'), bytes: new Uint8Array([1, 2]) },
+      { id: 2n, when: new Date('2026-01-02T03:04:06.000Z'), bytes: new Uint8Array([3]) },
+    ]);
+
+    const rows = await importViaParquet('a/b', 'default', 'train');
+
+    expect(rows).toEqual([
+      { id: 1, when: '2026-01-02T03:04:05.000Z', bytes: [1, 2] },
+      { id: 2, when: '2026-01-02T03:04:06.000Z', bytes: [3] },
+    ]);
+  });
+
+  it('honors maxRows and reports progress', async () => {
+    stubParquetListing();
+    stubShard([{ n: 0 }, { n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }]);
+    const progress: [number, number][] = [];
+
+    const rows = await importViaParquet('a/b', 'default', 'train', {
+      maxRows: 3,
+      onProgress: (done, total) => progress.push([done, total]),
+    });
+
+    expect(rows).toEqual([{ n: 0 }, { n: 1 }, { n: 2 }]);
+    expect(progress).toEqual([
+      [0, 3],
+      [3, 3],
+    ]);
+  });
+
+  it('rejects with AbortError when the signal is already aborted', async () => {
+    stubParquetListing();
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await importViaParquet('a/b', 'default', 'train', {
+      signal: controller.signal,
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe('AbortError');
+    expect(hyparquetMocks.asyncBufferFromUrl).not.toHaveBeenCalled();
+  });
+
+  it('stops between shard reads when aborted mid-import', async () => {
+    stubParquetListing();
+    const controller = new AbortController();
+    stubShard([{ n: 0 }, { n: 1 }]);
+    hyparquetMocks.parquetReadObjects.mockImplementation(() => {
+      controller.abort();
+      return Promise.resolve([{ n: 0 }, { n: 1 }]);
+    });
+
+    const error = await importViaParquet('a/b', 'default', 'train', {
+      signal: controller.signal,
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe('AbortError');
+    expect(hyparquetMocks.parquetReadObjects).toHaveBeenCalledTimes(1);
   });
 });

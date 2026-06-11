@@ -51,6 +51,15 @@ export function undoCreatedAction(createdIds: string[], noun: string) {
   };
 }
 
+/** Cap rendered error text so a huge provider message cannot flood the panel. */
+const ERROR_DISPLAY_LIMIT = 200;
+
+function truncateError(message: string): string {
+  return message.length > ERROR_DISPLAY_LIMIT
+    ? `${message.slice(0, ERROR_DISPLAY_LIMIT)}…`
+    : message;
+}
+
 export function JobProgress({ jobId, cancel }: ActiveJobHandle) {
   const job = useLiveQuery(() => db.jobs.get(jobId), [jobId]);
   if (!job) return null;
@@ -93,10 +102,13 @@ export function JobProgress({ jobId, cancel }: ActiveJobHandle) {
           Done{job.failed > 0 ? `. ${fmtNum(job.failed)} items failed.` : '.'}
         </p>
       )}
+      {job.status === 'completed' && job.failed > 0 && job.error !== undefined && (
+        <p className="text-[11px] leading-snug text-danger">{truncateError(job.error)}</p>
+      )}
       {job.status === 'failed' && (
         <p role="status" className="flex items-center gap-1.5 text-xs text-danger">
           <XCircle className="size-3.5 shrink-0" aria-hidden />
-          Failed{job.error ? `: ${job.error}` : '.'}
+          Failed{job.error ? `: ${truncateError(job.error)}` : '.'}
         </p>
       )}
       {job.status === 'cancelled' && (

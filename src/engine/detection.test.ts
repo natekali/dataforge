@@ -7,6 +7,7 @@ import {
   FORMAT_SPECIFICITY,
   classifyRow,
   detectFormat,
+  isKtoLabel,
   isRecord,
   resolveAlpacaField,
 } from '@/engine/detection';
@@ -33,7 +34,7 @@ const alpacaRow = () => ({ instruction: 'Summarize this', output: 'A summary.' }
 
 const dpoRow = () => ({ prompt: 'Best color?', chosen: 'Blue.', rejected: 'No idea.' });
 
-const ktoRow = (label = true) => ({ prompt: 'Q', completion: 'A', label });
+const ktoRow = (label: unknown = true) => ({ prompt: 'Q', completion: 'A', label });
 
 const repeat = <T>(make: () => T, n: number): T[] => Array.from({ length: n }, make);
 
@@ -85,6 +86,16 @@ describe('classifyRow', () => {
     expect(classifyRow({ prompt: 'Q', completion: 'A', label: false })).toBe('kto-unpaired');
     // Without the label the same fields read as aliased alpaca.
     expect(classifyRow({ prompt: 'Q', completion: 'A' })).toBe('alpaca');
+  });
+
+  it('accepts 0/1 and "true"/"false" labels for kto-unpaired', () => {
+    expect(classifyRow(ktoRow(1))).toBe('kto-unpaired');
+    expect(classifyRow(ktoRow(0))).toBe('kto-unpaired');
+    expect(classifyRow(ktoRow('true'))).toBe('kto-unpaired');
+    expect(classifyRow(ktoRow('false'))).toBe('kto-unpaired');
+    // Anything else is not a label — these rows read as aliased alpaca.
+    expect(classifyRow(ktoRow(2))).toBe('alpaca');
+    expect(classifyRow(ktoRow('maybe'))).toBe('alpaca');
   });
 
   it('returns null for unrecognizable rows', () => {
@@ -172,6 +183,12 @@ describe('detectFormat', () => {
 
   it('detects kto-unpaired (not alpaca) when boolean labels are present', () => {
     const schema = detectFormat([ktoRow(true), ktoRow(false), ktoRow(true)]);
+    expect(schema.format).toBe('kto-unpaired');
+    expect(schema.fieldMapping).toEqual({ prompt: 'messages', completion: 'completion', label: 'label' });
+  });
+
+  it('detects kto-unpaired with integer 0/1 and string labels', () => {
+    const schema = detectFormat([ktoRow(1), ktoRow(0), ktoRow('true'), ktoRow('false')]);
     expect(schema.format).toBe('kto-unpaired');
     expect(schema.fieldMapping).toEqual({ prompt: 'messages', completion: 'completion', label: 'label' });
   });
@@ -273,5 +290,18 @@ describe('helpers', () => {
     expect(resolveAlpacaField({ prompt: 'p' }, 'instruction')).toBe('prompt');
     expect(resolveAlpacaField({ prompt: 42 }, 'instruction')).toBeUndefined();
     expect(resolveAlpacaField({}, 'output')).toBeUndefined();
+  });
+
+  it('isKtoLabel accepts booleans, 0/1 and "true"/"false" only', () => {
+    expect(isKtoLabel(true)).toBe(true);
+    expect(isKtoLabel(false)).toBe(true);
+    expect(isKtoLabel(0)).toBe(true);
+    expect(isKtoLabel(1)).toBe(true);
+    expect(isKtoLabel('true')).toBe(true);
+    expect(isKtoLabel('false')).toBe(true);
+    expect(isKtoLabel(2)).toBe(false);
+    expect(isKtoLabel('yes')).toBe(false);
+    expect(isKtoLabel(null)).toBe(false);
+    expect(isKtoLabel(undefined)).toBe(false);
   });
 });

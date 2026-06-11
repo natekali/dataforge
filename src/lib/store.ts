@@ -17,6 +17,9 @@ interface UiState {
   /** Example id open in the inspector panel. */
   inspectorId: string | null;
   setInspectorId: (id: string | null) => void;
+  /** True while the inspector holds unsaved draft edits. */
+  inspectorDirty: boolean;
+  setInspectorDirty: (dirty: boolean) => void;
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 }
@@ -31,6 +34,8 @@ export const useUiStore = create<UiState>()(
       clearSelection: () => set({ selection: new Set() }),
       inspectorId: null,
       setInspectorId: (inspectorId) => set({ inspectorId }),
+      inspectorDirty: false,
+      setInspectorDirty: (inspectorDirty) => set({ inspectorDirty }),
       commandPaletteOpen: false,
       setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
     }),
