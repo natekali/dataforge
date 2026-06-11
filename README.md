@@ -1,4 +1,4 @@
-<img width="2172" height="724" alt="dataforge" src="https://github.com/user-attachments/assets/34c48ee5-b8b2-4369-b5f8-ecbc5a42a687" />  
+<img width="2172" height="724" alt="dataforge" src="https://github.com/user-attachments/assets/5aac41d5-0d41-4286-8514-c862b9b337f1" />  
 
 # 🛠️ Dataforge Studio
 
