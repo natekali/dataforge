@@ -1,10 +1,10 @@
-# DataForge Studio
+<img width="2172" height="724" alt="dataforge" src="https://github.com/user-attachments/assets/52b25641-16ed-4a2f-b799-c7ff6905eb24" />  
+
+# ⚒️ Dataforge Studio v2
 
 A workbench for building LLM fine-tuning datasets. Import data from anywhere, edit it in a proper grid, check its quality, generate synthetic examples, and export ready-to-train packages for the frameworks people actually use in 2026.
 
 Everything runs in your browser. There is no server, no account, no upload. Your training data never leaves your machine.
-
-**Live app:** https://natekali.github.io/dataforge/
 
 ![DataForge Studio workbench](docs/screenshot-workbench.png)
 
@@ -87,16 +87,6 @@ pnpm test        # run the test suite (557 tests)
 pnpm typecheck   # strict TypeScript check
 pnpm build       # production build to dist/
 ```
-
-## Deploy your own
-
-The repo ships with a GitHub Actions workflow that deploys to GitHub Pages on every push to `main`.
-
-1. Fork or push this repo to GitHub
-2. Repo Settings, then Pages, set Source to "GitHub Actions"
-3. Push to `main`
-
-That's it. The app appears at `https://<you>.github.io/dataforge/`. If your repo has a different name, set `DATAFORGE_BASE=/your-repo-name/` in the build step or edit `vite.config.ts`.
 
 ## Privacy
 
